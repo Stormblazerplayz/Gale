@@ -16,6 +16,8 @@ settings:
 packages:
   GaleKit:
     path: Modules/GaleKit
+  GaleLearn:
+    path: Modules/GaleLearn
 targets:
   Gale:
     type: application
@@ -29,6 +31,8 @@ targets:
         product: GaleCore
       - package: GaleKit
         product: GaleSync
+      - package: GaleLearn
+        product: GaleLearn
     settings:
       base:
         PRODUCT_NAME: Gale
