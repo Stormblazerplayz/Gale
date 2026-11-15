@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "tracks": [
+    {
+      "id": "animation",
+      "title": "2D Animation",
+      "subtitle": "From your first line to walk cycles, acting and effects",
+      "symbol": "figure.walk.motion",
+      "courses": [
+        "basics",
+        "tools",
+        "principles",
+        "ball",
+        "walk",
+        "run",
+        "acting",
+        "effects",
+        "hair"
+      ]
+    },
+    {
+      "id": "3d",
+      "title": "3D in 2D",
+      "subtitle": "Perspective, turnarounds, rotation and camera moves",
+      "symbol": "cube.transparent",
+      "courses": [
+        "perspective",
+        "turnarounds",
+        "rotating",
+        "camera",
+        "characters3d"
+      ]
+    }
+  ]
+}
