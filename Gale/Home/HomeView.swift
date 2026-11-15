@@ -1,8 +1,14 @@
 import SwiftUI
 import GaleFormat
+import GaleSync
 
 struct HomeView: View {
     @EnvironmentObject var library: ProjectLibrary
+    @EnvironmentObject var sync: SyncManager
+    @State private var showLearn = false
+    @State private var showScan = false
+    @State private var showComputer = false
+    @State private var downloading: String?
     @State private var path: [URL] = []
     @State private var showNew = false
     @State private var renaming: ProjectLibrary.Entry?
@@ -30,6 +36,31 @@ struct HomeView: View {
                     }
                 }
                 .padding(16)
+                if !computerOnly.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("On your computer", systemImage: "desktopcomputer").font(.headline)
+                        ForEach(computerOnly) { item in
+                            Button {
+                                downloading = item.id
+                                Task {
+                                    if let url = await sync.download(item) { path.append(url) }
+                                    downloading = nil
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: "icloud.and.arrow.down")
+                                    Text(item.name)
+                                    Spacer()
+                                    if downloading == item.id { ProgressView() }
+                                }
+                                .padding(12)
+                                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                }
                 if library.entries.isEmpty {
                     Text("Tap New to start drawing.")
                         .foregroundStyle(.secondary)
@@ -37,6 +68,38 @@ struct HomeView: View {
                 }
             }
             .navigationTitle("Gale")
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showLearn = true } label: { Label("Learn", systemImage: "graduationcap") }
+                    Button { showScan = true } label: { Label("Body scan", systemImage: "figure.stand") }
+                    Button { showComputer = true } label: {
+                        Label("Computer", systemImage: sync.status == .connected ? "desktopcomputer.and.arrow.down" : "desktopcomputer")
+                    }
+                }
+            }
+            .fullScreenCover(isPresented: $showLearn) {
+                NavigationStack {
+                    LearnHomeView()
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) { Button("Close") { showLearn = false } }
+                        }
+                }
+            }
+            .fullScreenCover(isPresented: $showScan) {
+                NavigationStack {
+                    ScanView(onOpenProject: { url in
+                        showScan = false
+                        library.reload()
+                        path.append(url)
+                    })
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Close") { showScan = false } }
+                    }
+                }
+            }
+            .sheet(isPresented: $showComputer) {
+                ComputerView()
+            }
             .navigationDestination(for: URL.self) { url in
                 EditorHost(url: url)
             }
@@ -56,6 +119,12 @@ struct HomeView: View {
             }
             .onAppear { library.reload() }
         }
+    }
+
+    /// Projects on the paired computer that aren't on this device yet.
+    private var computerOnly: [HubProject] {
+        let here = Set(library.entries.map(\.id))
+        return sync.hubProjects.filter { !here.contains($0.id) }
     }
 }
 

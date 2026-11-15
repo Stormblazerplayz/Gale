@@ -1,28 +1,36 @@
-import SwiftUI
 import GaleFormat
+import SwiftUI
 
 /// Opens a project folder and shows the editor for it.
 struct EditorHost: View {
     let url: URL
-    @State private var project: GaleProject?
+    @EnvironmentObject var store: LibraryStore
+    @EnvironmentObject var sync: SyncManager
+    @State private var document: ProjectDocument?
     @State private var error: String?
 
     var body: some View {
         Group {
-            if let project {
-                Text(project.name)
+            if let document {
+                EditorView(document: document, store: store)
             } else if let error {
-                Text(error).foregroundStyle(.red).padding()
+                ContentUnavailableView("Couldn't open this project", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
                 ProgressView()
             }
         }
         .task {
+            guard document == nil else { return }
             do {
-                project = try GaleIO.readProject(at: url)
+                let doc = try ProjectDocument(folder: url)
+                sync.attach(doc)
+                document = doc
             } catch {
-                self.error = "Couldn't open this project: \(error.localizedDescription)"
+                self.error = error.localizedDescription
             }
+        }
+        .onDisappear {
+            if let document { sync.detach(document) }
         }
     }
 }
