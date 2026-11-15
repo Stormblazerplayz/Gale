@@ -81,6 +81,13 @@ final class EditorUITests: XCTestCase {
         }
     }
 
+    /// If a menu is still open after picking from it, close it so the next tap is not swallowed.
+    func closeMenu(_ item: XCUIElement) {
+        if item.waitForNonExistence(timeout: 2) { return }
+        tapAway()
+        XCTAssertTrue(item.waitForNonExistence(timeout: 5), "The menu should close")
+    }
+
     func openNewProject() {
         waitFor(element("newProject"), "The New button should be on the home screen").tap()
         waitFor(element("createProject"), "The new project sheet should open").tap()
@@ -219,11 +226,11 @@ final class EditorUITests: XCTestCase {
         waitFor(onionToggle, "The onion skin menu should open").tap()
         waitForValue(element("onion"), contains: "off", "Onion skin should turn off")
         waitForValue(canvas, contains: "onion off", "The ghost should go away")
-        if onionToggle.exists && onionToggle.isHittable { tapAway() }
+        closeMenu(onionToggle)
         element("onion").tap()
         waitFor(onionToggle, "The onion skin menu should open again").tap()
         waitForValue(element("onion"), contains: "on", "Onion skin should turn back on")
-        if onionToggle.exists && onionToggle.isHittable { tapAway() }
+        closeMenu(onionToggle)
 
         // 13. Panels (layers).
         element("panels").tap()

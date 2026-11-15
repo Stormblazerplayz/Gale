@@ -182,14 +182,11 @@ struct EditorView: View {
             .accessibilityLabel("Onion skin options")
             .accessibilityValue(model.onion.on ? "on" : "off")
             .accessibilityIdentifier("onion")
-            Menu {
-                ForEach(EditorPanel.allCases) { p in
-                    Button { panel = p; showPanel = true } label: { Label(p.title, systemImage: p.icon) }
-                }
-            } label: {
+            // One tap opens or closes the side panel. The panel has its own tabs for
+            // Layers, Stash, Loops and Hair, so this does not need a menu.
+            Button { showPanel.toggle() } label: {
                 Image(systemName: "sidebar.right")
-            } primaryAction: {
-                showPanel.toggle()
+                    .symbolVariant(showPanel ? .fill : .none)
             }
             .accessibilityLabel("Panels")
             .accessibilityValue(showPanel ? "open" : "closed")
