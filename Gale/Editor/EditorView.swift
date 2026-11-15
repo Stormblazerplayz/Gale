@@ -273,8 +273,11 @@ struct ToolBar: View {
             .accessibilityLabel("Brush size")
             .accessibilityIdentifier("brushSize")
             .popover(isPresented: $showBrush) {
+                // A Form has no natural height, so a popover would shrink it to one row.
+                // Give it a real size so every setting shows.
                 BrushPanel(model: model)
-                    .frame(minWidth: 300)
+                    .frame(minWidth: 320, idealWidth: 340, minHeight: model.tool == .eraser ? 260 : 480, idealHeight: model.tool == .eraser ? 300 : 560)
+                    .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
             }
         }
