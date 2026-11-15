@@ -1,6 +1,7 @@
 import GaleCore
 import GaleFormat
 import SwiftUI
+import UIKit
 
 enum EditorPanel: String, CaseIterable, Identifiable {
     case layers, stash, loops, hair
@@ -241,6 +242,7 @@ struct PlayerOverlay: View {
 struct ToolBar: View {
     @ObservedObject var model: EditorModel
     @Binding var showBrush: Bool
+    @State private var showColor = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -259,10 +261,23 @@ struct ToolBar: View {
                 .accessibilityIdentifier("tool-\(t.rawValue)")
             }
             Divider().frame(height: 28)
-            ColorPicker("Color", selection: Binding(get: { model.color.color }, set: { model.color = RGBA($0) }), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 36)
-                .accessibilityIdentifier("color")
+            Button { showColor = true } label: {
+                Circle()
+                    .fill(model.color.color)
+                    .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    .overlay(Circle().strokeBorder(.secondary.opacity(0.5), lineWidth: 0.5))
+                    .frame(width: 30, height: 30)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Color")
+            .accessibilityValue(showColor ? "picker open" : "picker closed")
+            .accessibilityIdentifier("color")
+            .popover(isPresented: $showColor) {
+                SystemColorPicker(color: Binding(get: { model.color.color }, set: { model.color = RGBA($0) }))
+                    .frame(minWidth: 320, idealWidth: 360, minHeight: 480, idealHeight: 600)
+                    .presentationDetents([.medium, .large])
+                    .presentationCompactAdaptation(.sheet)
+            }
             Button { showBrush = true } label: {
                 Circle()
                     .fill(model.tool == .eraser ? Color.gray : model.color.color)
@@ -438,6 +453,35 @@ struct EditorSettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+/// Apple's full color picker (grid, spectrum, sliders and eyedropper), shown in a popover we control,
+/// so the color button always opens it and its open or closed state is known.
+struct SystemColorPicker: UIViewControllerRepresentable {
+    @Binding var color: Color
+
+    func makeUIViewController(context: Context) -> UIColorPickerViewController {
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        picker.selectedColor = UIColor(color)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIColorPickerViewController, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIColorPickerViewControllerDelegate {
+        var parent: SystemColorPicker
+        init(_ parent: SystemColorPicker) { self.parent = parent }
+
+        func colorPickerViewController(_ viewController: UIColorPickerViewController, didSelect color: UIColor, continuously: Bool) {
+            parent.color = Color(uiColor: color)
         }
     }
 }

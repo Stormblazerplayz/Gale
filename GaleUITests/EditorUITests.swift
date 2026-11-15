@@ -172,15 +172,13 @@ final class EditorUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Smoothing"].waitForNonExistence(timeout: 5), "Brush settings should close")
 
         // 8. Color: opens the color picker.
-        let colorsBefore = app.windows.count
         element("color").tap()
-        Thread.sleep(forTimeInterval: 1.5)
-        shot("06 Color picker")
-        let pickerOpened = app.buttons["Grid"].exists || app.buttons["Spectrum"].exists || app.buttons["Sliders"].exists
-            || app.staticTexts["Colors"].exists || app.windows.count != colorsBefore || !canvas.isHittable
-        XCTAssertTrue(pickerOpened, "The color button should open the color picker")
-        tapAway()
+        waitForValue(element("color"), contains: "picker open", "The color button should open the color picker")
+        waitFor(app.otherElements["PopoverDismissRegion"], "The color picker should show as a popup")
         Thread.sleep(forTimeInterval: 1)
+        shot("06 Color picker")
+        tapAway()
+        waitForValue(element("color"), contains: "picker closed", "Tapping outside should close the color picker")
 
         // 9. Fill: tap an empty spot and it fills.
         element("tool-fill").tap()
