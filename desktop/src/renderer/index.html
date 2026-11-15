@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gale</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="banners"></div>
+
+  <!-- Home: the list of drawings -->
+  <section id="home" class="screen">
+    <header class="home-top">
+      <div class="brand"><img src="icon.png" alt="" class="logo"><span>Gale</span></div>
+      <div class="home-actions">
+        <button id="home-new" class="btn primary">+ New drawing</button>
+        <button id="home-import" class="btn">Open a .gale project</button>
+        <button id="home-files" class="btn">Show my files</button>
+        <button id="home-pair" class="btn">Pair a device</button>
+      </div>
+    </header>
+    <div id="home-status" class="home-status"></div>
+    <div id="project-grid" class="project-grid"></div>
+    <div id="home-empty" class="empty" hidden>
+      <div class="empty-icon">✏️</div>
+      <h2>No drawings yet</h2>
+      <p>Press <b>+ New drawing</b> to start one.<br>Drawings from your iPad or iPhone show up here once you pair them.</p>
+    </div>
+  </section>
+
+  <!-- Editor -->
+  <section id="editor" class="screen" hidden>
+    <header class="ed-top">
+      <button id="ed-back" class="btn ghost" title="Back to your drawings">← Drawings</button>
+      <button id="ed-name" class="ed-name" title="Rename"></button>
+      <div class="ed-top-mid">
+        <button id="ed-undo" class="btn icon" title="Undo (Ctrl+Z)">↶</button>
+        <button id="ed-redo" class="btn icon" title="Redo (Ctrl+Y)">↷</button>
+        <span class="sep"></span>
+        <button id="ed-play" class="btn" title="Play (Enter)">▶ Play</button>
+        <button id="ed-onion" class="btn" title="Onion skin (O)">Onion skin</button>
+        <button id="ed-onion-set" class="btn icon" title="Onion skin settings">⚙</button>
+        <span class="sep"></span>
+        <button id="ed-fit" class="btn icon" title="Fit to window (0)">⤢</button>
+        <span id="ed-zoom" class="zoom-label">100%</span>
+      </div>
+      <div class="ed-top-right">
+        <span id="ed-people" class="people"></span>
+        <span id="ed-conn" class="conn"></span>
+        <button id="ed-export" class="btn">Export</button>
+      </div>
+    </header>
+
+    <div class="ed-body">
+      <nav id="ed-tools" class="tools"></nav>
+      <div id="stage" class="stage">
+        <canvas id="view"></canvas>
+        <div id="stage-msg" class="stage-msg" hidden></div>
+      </div>
+      <aside class="side">
+        <div class="panel">
+          <h3>Brush</h3>
+          <div class="color-row">
+            <input id="br-color" type="color" title="Pick a color">
+            <div id="br-swatches" class="swatches"></div>
+          </div>
+          <div id="br-recent" class="swatches recent"></div>
+          <label class="slider"><span>Size</span><input id="br-size" type="range" min="1" max="200" step="1"><output id="br-size-out"></output></label>
+          <label class="slider"><span>Opacity</span><input id="br-opacity" type="range" min="5" max="100" step="1"><output id="br-opacity-out"></output></label>
+          <label class="slider"><span>Smooth lines</span><input id="br-smooth" type="range" min="0" max="100" step="1"><output id="br-smooth-out"></output></label>
+        </div>
+        <div class="panel layers-panel">
+          <h3>Layers</h3>
+          <div id="layer-list" class="layer-list"></div>
+          <label class="slider"><span>Layer opacity</span><input id="layer-opacity" type="range" min="0" max="100" step="1"><output id="layer-opacity-out"></output></label>
+          <div class="row-buttons">
+            <button id="layer-add" class="btn small" title="New layer">+ Add</button>
+            <button id="layer-up" class="btn small icon" title="Move layer up">▲</button>
+            <button id="layer-down" class="btn small icon" title="Move layer down">▼</button>
+            <button id="layer-rename" class="btn small" title="Rename layer">Rename</button>
+            <button id="layer-del" class="btn small danger" title="Delete layer">Delete</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="timeline">
+      <div class="tl-controls">
+        <button id="fr-add" class="btn small" title="New empty frame (N)">+ Frame</button>
+        <button id="fr-dup" class="btn small" title="Copy this frame (D)">Copy</button>
+        <button id="fr-del" class="btn small danger" title="Delete this frame">Delete</button>
+        <button id="fr-left" class="btn small icon" title="Move frame left">◀</button>
+        <button id="fr-right" class="btn small icon" title="Move frame right">▶</button>
+        <span class="sep"></span>
+        <span class="hold">Hold
+          <button id="fr-hold-dn" class="btn small icon" title="Shorter">−</button>
+          <output id="fr-hold"></output>
+          <button id="fr-hold-up" class="btn small icon" title="Longer">+</button>
+        </span>
+        <span class="sep"></span>
+        <label class="fps">Speed <input id="fps" type="number" min="1" max="60" step="1"> frames a second</label>
+        <span id="fr-pos" class="fr-pos"></span>
+      </div>
+      <div id="frames" class="frames"></div>
+    </footer>
+  </section>
+
+  <!-- Pairing -->
+  <section id="pair" class="screen" hidden>
+    <header class="home-top">
+      <button id="pair-back" class="btn ghost">← Drawings</button>
+      <h1 class="pair-title">Pair a device</h1>
+      <span></span>
+    </header>
+    <div class="pair-body">
+      <div class="pair-card">
+        <div id="pair-error" class="warn" hidden></div>
+        <p class="pair-steps">1. Open <b>Gale</b> on your iPad or iPhone.<br>2. Tap <b>Connect to computer</b>.<br>3. Scan this code, or type the 6 numbers.</p>
+        <div class="qr-wrap"><img id="pair-qr" alt="Pairing code picture"></div>
+        <div id="pair-code" class="pair-code"></div>
+        <div id="pair-timer" class="pair-timer"></div>
+        <button id="pair-new" class="btn">Make a new code</button>
+        <p class="hint">Both devices need to be on the same Wi-Fi. If Windows asks about the network, press <b>Allow</b>.</p>
+      </div>
+      <div class="pair-side">
+        <h3>This computer</h3>
+        <div id="pair-name" class="pair-name"></div>
+        <ul id="pair-ips" class="ip-list"></ul>
+        <h3>Paired devices</h3>
+        <ul id="device-list" class="device-list"></ul>
+      </div>
+    </div>
+  </section>
+
+  <div id="modal-root"></div>
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="gen/shared.bundle.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/hubClient.js"></script>
+  <script src="js/session.js"></script>
+  <script src="js/render.js"></script>
+  <script src="js/exporter.js"></script>
+  <script src="js/editor.js"></script>
+  <script src="js/home.js"></script>
+  <script src="js/pair.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

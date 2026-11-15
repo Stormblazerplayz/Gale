@@ -1,0 +1,6 @@
+# Made by scripts/bundle.js
+src/renderer/gen/
+dist/
+node_modules/
+# The repo ignores build/ folders, but this one holds the app icon.
+!build/
