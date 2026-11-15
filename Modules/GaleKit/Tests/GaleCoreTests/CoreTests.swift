@@ -464,3 +464,80 @@ final class UndoTests: XCTestCase {
         XCTAssertFalse(u.canRedo)
     }
 }
+
+final class StrokeRoundingTests: XCTestCase {
+    /// A quick zigzag drawn with a shaky finger: sharp corners plus small wobbles, sampled like a real touch screen.
+    func shakyZigzag(seed: UInt64) -> [StrokePoint] {
+        var rng = SeededRandom(seed)
+        var pts: [StrokePoint] = []
+        let corners: [(Double, Double)] = [(100, 300), (160, 220), (220, 300), (280, 220), (340, 300), (400, 220)]
+        var t = 0.0
+        for c in 0..<(corners.count - 1) {
+            let a = corners[c], b = corners[c + 1]
+            let steps = 30
+            for k in 0..<steps {
+                let f = Double(k) / Double(steps)
+                pts.append(StrokePoint(x: a.0 + (b.0 - a.0) * f + rng.signed() * 1.2,
+                                       y: a.1 + (b.1 - a.1) * f + rng.signed() * 1.2,
+                                       pressure: 0.5, time: t))
+                t += 1.0 / 120
+            }
+        }
+        pts.append(StrokePoint(x: 400, y: 220, pressure: 0.5, time: t))
+        return pts
+    }
+
+    /// The same steps the canvas takes when you lift your finger.
+    func finish(_ raw: [StrokePoint], amount: Double, scale: Double = 1) -> [StrokePoint] {
+        let st = StrokeStabilizer.stabilize(raw, amount: amount, scale: scale)
+        return StrokeSmoother.round(StrokeShape.dedupe(st), radius: StrokeSmoother.radius(amount: amount, scale: scale))
+    }
+
+    func testCornersAndWobblesGetRounded() {
+        let raw = shakyZigzag(seed: 9)
+        let before = StrokeShape.sharpestBend(raw)
+        let after = StrokeShape.sharpestBend(finish(raw, amount: 0.55))
+        XCTAssertGreaterThan(before, 60, "the test line should start out jagged")
+        XCTAssertLessThan(after, 30, "sharpest bend went from \(before) to \(after) degrees")
+    }
+
+    func testRoundingWorksZoomedOut() {
+        // Zoomed out, canvas pixels are bigger on screen, so the same hand wobble is many canvas pixels.
+        let raw = shakyZigzag(seed: 4).map { p -> StrokePoint in
+            var q = p
+            q.x *= 4
+            q.y *= 4
+            return q
+        }
+        let after = StrokeShape.sharpestBend(finish(raw, amount: 0.55, scale: 4), spacing: 16)
+        XCTAssertLessThan(after, 30, "sharpest bend \(after) degrees")
+    }
+
+    func testRoundingKeepsEnds() {
+        let raw = shakyZigzag(seed: 2)
+        let out = StrokeSmoother.round(raw, radius: 10)
+        XCTAssertEqual(out.first!.x, raw.first!.x, accuracy: 0.001)
+        XCTAssertEqual(out.first!.y, raw.first!.y, accuracy: 0.001)
+        XCTAssertEqual(out.last!.x, raw.last!.x, accuracy: 0.001)
+        XCTAssertEqual(out.last!.y, raw.last!.y, accuracy: 0.001)
+    }
+
+    func testResampleIsEven() {
+        let line = [StrokePoint(x: 0, y: 0), StrokePoint(x: 0.3, y: 0), StrokePoint(x: 10, y: 0), StrokePoint(x: 10.2, y: 0), StrokePoint(x: 20, y: 0)]
+        let even = StrokeShape.resample(line, spacing: 2)
+        XCTAssertEqual(even.count, 11)
+        for i in 1..<even.count {
+            XCTAssertEqual(even[i].x - even[i - 1].x, 2, accuracy: 0.001)
+        }
+    }
+
+    func testOutlineEdgesAreSmooth() {
+        let pts = finish(shakyZigzag(seed: 6), amount: 0.55)
+        let stroke = Stroke(brush: Brush(kind: .pen, color: .black, size: 10), points: pts)
+        let poly = StrokeShape.outline(of: stroke)
+        // Walk one edge (the first half of the outline) and look for sudden jumps in direction.
+        let edge = Array(poly.prefix(poly.count / 2 - 10)).map { StrokePoint(x: $0.x, y: $0.y) }
+        let bend = StrokeShape.sharpestBend(Array(edge.dropFirst(10)), spacing: 4)
+        XCTAssertLessThan(bend, 40, "edge bend \(bend) degrees")
+    }
+}

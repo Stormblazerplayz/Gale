@@ -56,41 +56,60 @@ struct DrawingCanvas: UIViewRepresentable {
     }
 }
 
-/// Scroll view that zooms and pans the paper with two fingers. One finger or the Pencil draws.
-final class CanvasScrollView: UIScrollView, UIScrollViewDelegate {
+/// Holds the paper and moves it around. Two fingers pinch to zoom and drag to move. One finger or the Pencil draws.
+///
+/// The paper keeps its real size (1 point = 1 canvas pixel) and is shown smaller or bigger with a scale,
+/// always placed from the middle of this view, so it starts centered and filling the space.
+final class CanvasScrollView: UIView, UIGestureRecognizerDelegate {
     let canvas = CanvasContentView()
+    private(set) var zoomScale: CGFloat = 1
+    /// How far the middle of the paper is from the middle of this view, in screen points.
+    private var offset: CGPoint = .zero
+    /// True once you pinch or move the paper yourself, so turning the iPad doesn't undo it.
+    private var userMoved = false
     private var lastBoundsSize: CGSize = .zero
     private var lastCanvasSize: CGSize = .zero
+    private var pinchStartScale: CGFloat = 1
+    private var pinchAnchor: CGPoint = .zero
+    private let pinch = UIPinchGestureRecognizer()
+    private let pan = UIPanGestureRecognizer()
+    static let maxZoom: CGFloat = 12
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        delegate = self
         backgroundColor = UIColor.secondarySystemBackground
-        showsVerticalScrollIndicator = false
-        showsHorizontalScrollIndicator = false
-        delaysContentTouches = false
-        canCancelContentTouches = true
-        panGestureRecognizer.minimumNumberOfTouches = 2
-        panGestureRecognizer.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        pinchGestureRecognizer?.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
-        bouncesZoom = true
-        maximumZoomScale = 12
+        clipsToBounds = true
+        isMultipleTouchEnabled = true
         addSubview(canvas)
+
+        let direct = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        pinch.addTarget(self, action: #selector(pinched(_:)))
+        pinch.allowedTouchTypes = direct
+        pinch.delegate = self
+        addGestureRecognizer(pinch)
+        pan.addTarget(self, action: #selector(panned(_:)))
+        pan.minimumNumberOfTouches = 2
+        pan.maximumNumberOfTouches = 3
+        pan.allowedTouchTypes = direct
+        pan.delegate = self
+        addGestureRecognizer(pan)
 
         let undoTap = UITapGestureRecognizer(target: self, action: #selector(undoTapped))
         undoTap.numberOfTouchesRequired = 2
-        undoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        undoTap.allowedTouchTypes = direct
         addGestureRecognizer(undoTap)
         let redoTap = UITapGestureRecognizer(target: self, action: #selector(redoTapped))
         redoTap.numberOfTouchesRequired = 3
-        redoTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        redoTap.allowedTouchTypes = direct
         addGestureRecognizer(redoTap)
         let fitTap = UITapGestureRecognizer(target: self, action: #selector(fitTapped))
         fitTap.numberOfTouchesRequired = 2
         fitTap.numberOfTapsRequired = 2
-        fitTap.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        fitTap.allowedTouchTypes = direct
         addGestureRecognizer(fitTap)
         undoTap.require(toFail: fitTap)
+
+        accessibilityIdentifier = "canvasArea"
     }
 
     required init?(coder: NSCoder) { fatalError("Not used") }
@@ -99,49 +118,134 @@ final class CanvasScrollView: UIScrollView, UIScrollViewDelegate {
     @objc private func redoTapped() { canvas.cancelStroke(); canvas.actions?.redo() }
     @objc private func fitTapped() { zoomToFit(animated: true) }
 
+    /// Touches anywhere in the gray area go to the paper, so a line can start just off its edge.
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hit = super.hitTest(point, with: event)
+        return hit === self ? canvas : hit
+    }
+
+    func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+        (g === pinch && other === pan) || (g === pan && other === pinch)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         if bounds.size != lastBoundsSize {
             lastBoundsSize = bounds.size
-            zoomToFit(animated: false)
+            if userMoved { clampOffset() } else { fitValues() }
         }
-        centerCanvas()
+        applyPlacement()
     }
 
+    /// Called after the paper may have changed size (a new project, or a different canvas size).
     func contentSizeChanged() {
         let size = canvas.bounds.size
         if size != lastCanvasSize {
             lastCanvasSize = size
-            zoomToFit(animated: false)
+            fitValues()
+            applyPlacement()
         }
     }
 
-    func zoomToFit(animated: Bool) {
+    /// The scale that shows the whole paper with a small margin.
+    var fitScale: CGFloat {
         let size = canvas.bounds.size
-        guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return }
-        let fit = min((bounds.width - 32) / size.width, (bounds.height - 32) / size.height)
-        minimumZoomScale = max(0.02, fit * 0.5)
-        setZoomScale(max(0.02, fit), animated: animated)
-        centerCanvas()
+        guard size.width > 0, size.height > 0, bounds.width > 0, bounds.height > 0 else { return 1 }
+        let margin: CGFloat = bounds.width > 500 ? 24 : 12
+        let fit = min((bounds.width - margin * 2) / size.width, (bounds.height - margin * 2) / size.height)
+        return max(0.01, fit)
     }
 
-    private func centerCanvas() {
-        let w = canvas.frame.width, h = canvas.frame.height
-        let insetX = max(0, (bounds.width - w) / 2)
-        let insetY = max(0, (bounds.height - h) / 2)
-        contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
+    private var minZoom: CGFloat { max(0.01, fitScale * 0.4) }
+
+    func zoomToFit(animated: Bool) {
+        fitValues()
+        if animated {
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                self.applyPlacement()
+            } completion: { _ in self.canvas.updateLiveScale() }
+        } else {
+            applyPlacement()
+        }
     }
 
-    func viewForZooming(in scrollView: UIScrollView) -> UIView? { canvas }
+    private func fitValues() {
+        zoomScale = fitScale
+        offset = .zero
+        userMoved = false
+    }
 
-    func scrollViewDidZoom(_ scrollView: UIScrollView) {
-        centerCanvas()
+    private func applyPlacement() {
+        canvas.transform = CGAffineTransform(scaleX: zoomScale, y: zoomScale)
+        canvas.center = CGPoint(x: bounds.midX + offset.x, y: bounds.midY + offset.y)
         canvas.zoom = zoomScale
+        canvas.updateLiveScale()
     }
 
-    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
-        canvas.zoom = scale
-        canvas.updateLiveScale()
+    /// Keeps at least part of the paper on screen so it can't get lost.
+    private func clampOffset() {
+        let size = canvas.bounds.size
+        let keep: CGFloat = 80
+        let maxX = max(0, size.width * zoomScale / 2 + bounds.width / 2 - keep)
+        let maxY = max(0, size.height * zoomScale / 2 + bounds.height / 2 - keep)
+        offset.x = min(maxX, max(-maxX, offset.x))
+        offset.y = min(maxY, max(-maxY, offset.y))
+    }
+
+    /// Where a point on screen lands on the paper, in canvas pixels.
+    private func paperPoint(_ p: CGPoint) -> CGPoint {
+        let size = canvas.bounds.size
+        return CGPoint(x: (p.x - bounds.midX - offset.x) / zoomScale + size.width / 2,
+                       y: (p.y - bounds.midY - offset.y) / zoomScale + size.height / 2)
+    }
+
+    @objc private func pinched(_ g: UIPinchGestureRecognizer) {
+        let size = canvas.bounds.size
+        switch g.state {
+        case .began:
+            canvas.cancelStroke()
+            pinchStartScale = zoomScale
+            pinchAnchor = paperPoint(g.location(in: self))
+            userMoved = true
+        case .changed:
+            guard g.numberOfTouches >= 2 else { return }
+            zoomScale = min(Self.maxZoom, max(minZoom, pinchStartScale * g.scale))
+            // Keep the spot between your fingers under your fingers while zooming and moving.
+            let loc = g.location(in: self)
+            offset = CGPoint(x: loc.x - bounds.midX - (pinchAnchor.x - size.width / 2) * zoomScale,
+                             y: loc.y - bounds.midY - (pinchAnchor.y - size.height / 2) * zoomScale)
+            clampOffset()
+            applyPlacement()
+        case .ended, .cancelled, .failed:
+            // Zoomed out close to the fit size: snap back to fit, so the paper sits nicely in the middle again.
+            if abs(zoomScale - fitScale) / fitScale < 0.08 || zoomScale < fitScale {
+                zoomToFit(animated: true)
+            }
+        default:
+            break
+        }
+    }
+
+    @objc private func panned(_ g: UIPanGestureRecognizer) {
+        switch g.state {
+        case .began:
+            canvas.cancelStroke()
+            userMoved = true
+        case .changed:
+            // While pinching, the pinch already moves the paper with your fingers.
+            if pinch.state == .began || pinch.state == .changed {
+                g.setTranslation(.zero, in: self)
+                return
+            }
+            let t = g.translation(in: self)
+            g.setTranslation(.zero, in: self)
+            offset.x += t.x
+            offset.y += t.y
+            clampOffset()
+            applyPlacement()
+        default:
+            break
+        }
     }
 }
 
@@ -190,6 +294,9 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         for v in [onionView, belowView, currentView, floatingView, aboveView] {
             v.isUserInteractionEnabled = false
             v.contentMode = .scaleToFill
+            // Smooth when shown smaller than drawn (zoomed out), instead of jagged stair steps.
+            v.layer.minificationFilter = .trilinear
+            v.layer.magnificationFilter = .linear
         }
         addSubview(paper)
         addSubview(onionView)
@@ -218,6 +325,79 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         pencil.delegate = self
         addInteraction(pencil)
         addInteraction(UIDropInteraction(delegate: self))
+
+        isAccessibilityElement = true
+        accessibilityIdentifier = "canvas"
+        accessibilityLabel = "Drawing paper"
+        accessibilityTraits = .allowsDirectInteraction
+        if UITestMode.on {
+            NotificationCenter.default.addObserver(self, selector: #selector(drawTestScribble), name: UITestMode.scribble, object: nil)
+        }
+    }
+
+    // MARK: Accessibility (also how the UI tests check the canvas)
+
+    /// Sharpest bend of the last finished line, in degrees, measured every 4 screen points.
+    private(set) var lastBend: Double = 0
+
+    override var accessibilityValue: String? {
+        get {
+            guard let s = state, s.project.frames.indices.contains(s.frameIndex) else { return "empty" }
+            let cel = s.project.frames[s.frameIndex].cel(s.layerID)
+            let ink = Self.inkPixels(currentView.image?.cgImage)
+            let onion = onionView.image == nil ? "off" : "on"
+            return "strokes \(cel.strokes.count), fills \(cel.fills.count), ink \(ink), onion \(onion), bend \(Int(lastBend.rounded())), zoom \(String(format: "%.2f", zoom))"
+        }
+        set {}
+    }
+
+    /// How many pixels of a small copy of the picture have paint on them.
+    nonisolated static func inkPixels(_ image: CGImage?) -> Int {
+        guard let image else { return 0 }
+        let w = 160
+        let h = max(1, Int(Double(w) * Double(image.height) / Double(max(1, image.width))))
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+              let data = ctx.data else { return 0 }
+        ctx.interpolationQuality = .medium
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        let px = data.bindMemory(to: UInt8.self, capacity: w * h * 4)
+        var n = 0
+        for i in 0..<(w * h) where px[i * 4 + 3] > 24 { n += 1 }
+        return n
+    }
+
+    /// UI tests only: draws a quick, shaky zigzag through the same steps as a real finger,
+    /// so the test can check that the line comes out smooth.
+    @objc private func drawTestScribble() {
+        guard let s = state, s.tool == .brush || s.tool == .eraser else { return }
+        let z = Double(max(0.05, zoom))
+        let size = s.project.canvas
+        // A zigzag about 300 points wide on screen, around the middle of the paper.
+        let cx = size.width / 2, cy = size.height / 2
+        var pts: [StrokePoint] = []
+        var seed: UInt64 = 42
+        func wobble() -> Double {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return (Double(seed >> 33) / Double(1 << 31)) * 2 - 1
+        }
+        let corners: [(Double, Double)] = [(-150, 40), (-90, -40), (-30, 40), (30, -40), (90, 40), (150, -40)]
+        var t = 0.0
+        for c in 0..<(corners.count - 1) {
+            let a = corners[c], b = corners[c + 1]
+            for k in 0..<30 {
+                let f = Double(k) / 30
+                // Screen points with a shaky hand (1.5 points of wobble), then turned into canvas pixels.
+                let sx = a.0 + (b.0 - a.0) * f + wobble() * 1.5
+                let sy = a.1 + (b.1 - a.1) * f + wobble() * 1.5
+                pts.append(StrokePoint(x: cx + sx / z, y: cy + sy / z, pressure: 0.5, time: t))
+                t += 1.0 / 120
+            }
+        }
+        pts.append(StrokePoint(x: cx + 150 / z, y: cy - 40 / z, pressure: 0.5, time: t))
+        guard beginLine(pts[0]) else { return }
+        for p in pts.dropFirst() { continueLine([p]) }
+        finishLine(pts[pts.count - 1])
     }
 
     required init?(coder: NSCoder) { fatalError("Not used") }
@@ -229,9 +409,8 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         state = new
         let w = CGFloat(new.project.canvas.width), h = CGFloat(new.project.canvas.height)
         if bounds.size != CGSize(width: w, height: h) {
-            let center = self.center
+            // The holder view places and scales the paper; here it only gets its real size.
             bounds = CGRect(x: 0, y: 0, width: w, height: h)
-            self.center = center
             for v in [paper, onionView, belowView, currentView, floatingView, aboveView] { v.frame = bounds }
             liveLayer.frame = bounds
             overlayLayer.frame = bounds
@@ -500,10 +679,7 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
             if !layer.visible { actions?.blocked("This layer is hidden. Show it to draw."); return }
             activeTouch = touch
             strokeStart = touch.timestamp
-            let st = StrokeStabilizer(amount: s.smoothing, scale: 1 / Double(max(0.05, zoom)))
-            stabilizer = st
-            livePoints = st.begin(point(for: touch, start: strokeStart))
-            updateLivePath(predicted: [])
+            _ = beginLine(point(for: touch, start: strokeStart))
         case .fill:
             if layer.locked { actions?.blocked("This layer is locked."); return }
             let p = touch.location(in: self)
@@ -528,14 +704,12 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         guard let touch = activeTouch, touches.contains(touch), let s = state else { return }
         switch s.tool {
         case .brush, .eraser:
-            guard let st = stabilizer else { return }
             let samples = event?.coalescedTouches(for: touch) ?? [touch]
-            for t in samples { livePoints += st.add(point(for: t, start: strokeStart)) }
             var predicted: [StrokePoint] = []
             if s.smoothing < 0.15, let pred = event?.predictedTouches(for: touch) {
                 predicted = pred.map { point(for: $0, start: strokeStart) }
             }
-            updateLivePath(predicted: predicted)
+            continueLine(samples.map { point(for: $0, start: strokeStart) }, predicted: predicted)
         case .select:
             let p = touch.location(in: self)
             if let start = moveStart {
@@ -559,17 +733,7 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         activeTouch = nil
         switch s.tool {
         case .brush, .eraser:
-            guard let st = stabilizer else { return }
-            livePoints += st.add(point(for: touch, start: strokeStart))
-            livePoints += st.end()
-            stabilizer = nil
-            var pts = StrokeShape.dedupe(livePoints)
-            if s.smoothing > 0.05 { pts = StrokeSmoother.smooth(pts, amount: s.smoothing * 0.7) }
-            livePoints = []
-            guard !pts.isEmpty else { liveLayer.path = nil; return }
-            let stroke = Stroke(brush: s.brush, points: pts).rounded
-            liveLayer.path = StrokeRenderer.path(for: stroke)
-            actions?.commitStroke(stroke)
+            finishLine(point(for: touch, start: strokeStart))
         case .select:
             if moveStart != nil {
                 let offset = moveOffset
@@ -613,9 +777,52 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         updateOverlays()
     }
 
+    // MARK: The line pipeline (fingers, the Pencil and the UI test scribble all go through here)
+
+    /// Canvas pixels per screen point for the line being drawn.
+    private var lineScale: Double = 1
+
+    /// Starts a line. Returns false if nothing can be drawn right now.
+    @discardableResult
+    private func beginLine(_ p: StrokePoint) -> Bool {
+        guard let s = state else { return false }
+        lineScale = 1 / Double(max(0.05, zoom))
+        let st = StrokeStabilizer(amount: s.smoothing, scale: lineScale)
+        stabilizer = st
+        livePoints = st.begin(p)
+        updateLivePath(predicted: [])
+        return true
+    }
+
+    private func continueLine(_ samples: [StrokePoint], predicted: [StrokePoint] = []) {
+        guard let st = stabilizer else { return }
+        for p in samples { livePoints += st.add(p) }
+        updateLivePath(predicted: predicted)
+    }
+
+    private func finishLine(_ last: StrokePoint) {
+        guard let s = state, let st = stabilizer else { return }
+        livePoints += st.add(last)
+        livePoints += st.end()
+        stabilizer = nil
+        let pts = rounded(StrokeShape.dedupe(livePoints), smoothing: s.smoothing)
+        livePoints = []
+        guard !pts.isEmpty else { liveLayer.path = nil; return }
+        let stroke = Stroke(brush: s.brush, points: pts).rounded
+        lastBend = StrokeShape.sharpestBend(stroke.points, spacing: 4 * lineScale)
+        liveLayer.path = StrokeRenderer.path(for: stroke)
+        actions?.commitStroke(stroke)
+    }
+
+    /// Rounds off kinks and corners the same way while drawing and when you lift, so the line never jumps.
+    private func rounded(_ pts: [StrokePoint], smoothing: Double) -> [StrokePoint] {
+        guard smoothing > 0.02 else { return pts }
+        return StrokeSmoother.round(pts, radius: StrokeSmoother.radius(amount: smoothing, scale: lineScale))
+    }
+
     private func updateLivePath(predicted: [StrokePoint]) {
         guard let s = state else { return }
-        let stroke = Stroke(brush: s.brush, points: livePoints + predicted)
+        let stroke = Stroke(brush: s.brush, points: rounded(livePoints, smoothing: s.smoothing) + predicted)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if s.brush.kind == .eraser {

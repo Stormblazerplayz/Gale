@@ -68,6 +68,21 @@ struct EditorView: View {
                     }
                 }
 
+                if UITestMode.on && !player.isPlaying {
+                    // Only in UI tests: draws a shaky zigzag through the real drawing steps.
+                    VStack {
+                        HStack {
+                            Button("Test scribble") { NotificationCenter.default.post(name: UITestMode.scribble, object: nil) }
+                                .font(.caption2)
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("testScribble")
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
+                }
+
                 VStack {
                     if let toast = controller.toast {
                         Text(toast)
@@ -148,6 +163,7 @@ struct EditorView: View {
                 Image(systemName: player.isPlaying ? "stop.fill" : "play.fill")
             }
             .accessibilityLabel(player.isPlaying ? "Stop" : "Play")
+            .accessibilityIdentifier("play")
             Menu {
                 Toggle("Onion skin", isOn: $model.onion.on)
                 Toggle("Frosted glass", isOn: $model.onion.frosted)
@@ -162,7 +178,9 @@ struct EditorView: View {
             } label: {
                 Image(systemName: model.onion.on ? "circle.dashed.inset.filled" : "circle.dashed")
             }
-            .accessibilityLabel("Onion skin")
+            .accessibilityLabel("Onion skin options")
+            .accessibilityValue(model.onion.on ? "on" : "off")
+            .accessibilityIdentifier("onion")
             Menu {
                 ForEach(EditorPanel.allCases) { p in
                     Button { panel = p; showPanel = true } label: { Label(p.title, systemImage: p.icon) }
@@ -173,6 +191,8 @@ struct EditorView: View {
                 showPanel.toggle()
             }
             .accessibilityLabel("Panels")
+            .accessibilityValue(showPanel ? "open" : "closed")
+            .accessibilityIdentifier("panels")
             Menu {
                 Button { showStudio = true } label: { Label("Video and audio", systemImage: "film.stack") }
                 Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
@@ -181,6 +201,8 @@ struct EditorView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("More")
+            .accessibilityIdentifier("more")
         }
     }
 }
@@ -207,6 +229,11 @@ struct PlayerOverlay: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { stop() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playing")
+        .accessibilityValue(player.image == nil ? "getting ready" : "frame \(player.frameIndex + 1)")
+        .accessibilityIdentifier("player")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -228,11 +255,14 @@ struct ToolBar: View {
                         .foregroundStyle(model.tool == t ? Theme.accent : .primary)
                 }
                 .accessibilityLabel(t.title)
+                .accessibilityValue(model.tool == t ? "selected" : "")
+                .accessibilityIdentifier("tool-\(t.rawValue)")
             }
             Divider().frame(height: 28)
             ColorPicker("Color", selection: Binding(get: { model.color.color }, set: { model.color = RGBA($0) }), supportsOpacity: false)
                 .labelsHidden()
                 .frame(width: 36)
+                .accessibilityIdentifier("color")
             Button { showBrush = true } label: {
                 Circle()
                     .fill(model.tool == .eraser ? Color.gray : model.color.color)
@@ -241,6 +271,7 @@ struct ToolBar: View {
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel("Brush size")
+            .accessibilityIdentifier("brushSize")
             .popover(isPresented: $showBrush) {
                 BrushPanel(model: model)
                     .frame(minWidth: 300)

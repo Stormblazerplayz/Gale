@@ -46,10 +46,7 @@ enum StrokeRenderer {
         }
         let outline = StrokeShape.outline(of: stroke)
         guard outline.count >= 3 else { return }
-        let path = CGMutablePath()
-        path.move(to: CGPoint(x: outline[0].x, y: outline[0].y))
-        for p in outline.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: p.y)) }
-        path.closeSubpath()
+        let path = smoothPath(outline)
         ctx.setFillColor(color.with(alpha: isEraser ? 1 : a).cgColor)
         ctx.addPath(path)
         // Nonzero so a stroke that crosses itself stays solid.
@@ -74,11 +71,23 @@ enum StrokeRenderer {
 
     /// The live stroke while drawing, as a path (used by the fast preview layer).
     static func path(for stroke: Stroke) -> CGPath {
-        let path = CGMutablePath()
         let outline = StrokeShape.outline(of: stroke)
-        guard outline.count >= 3 else { return path }
-        path.move(to: CGPoint(x: outline[0].x, y: outline[0].y))
-        for p in outline.dropFirst() { path.addLine(to: CGPoint(x: p.x, y: p.y)) }
+        guard outline.count >= 3 else { return CGMutablePath() }
+        return smoothPath(outline)
+    }
+
+    /// A closed outline drawn with curves through the middle of each edge, so it has no corners.
+    static func smoothPath(_ outline: [Vec2]) -> CGPath {
+        let path = CGMutablePath()
+        let n = outline.count
+        guard n >= 3 else { return path }
+        func mid(_ a: Vec2, _ b: Vec2) -> CGPoint { CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2) }
+        path.move(to: mid(outline[n - 1], outline[0]))
+        for i in 0..<n {
+            let p = outline[i]
+            let next = outline[(i + 1) % n]
+            path.addQuadCurve(to: mid(p, next), control: CGPoint(x: p.x, y: p.y))
+        }
         path.closeSubpath()
         return path
     }

@@ -108,6 +108,47 @@ public final class StrokeStabilizer {
 /// A last smoothing pass when a stroke is finished: evens out positions and pressure
 /// while keeping both ends exactly where they are.
 public enum StrokeSmoother {
+    /// How far (in canvas pixels) the rounding reaches for a smoothing `amount` at a zoom `scale`
+    /// (canvas pixels per screen point). 0 means no rounding.
+    public static func radius(amount: Double, scale: Double = 1) -> Double {
+        let a = min(1, max(0, amount))
+        return a * 18 * max(0.01, scale)
+    }
+
+    /// Rounds off corners and kinks by distance along the line, so it looks the same however fast you drew
+    /// and however many touch samples came in. Spreads points evenly, then blends each one with its
+    /// neighbours within `radius` canvas pixels. Both ends stay exactly where they are.
+    public static func round(_ points: [StrokePoint], radius: Double) -> [StrokePoint] {
+        guard points.count > 2, radius > 0.25 else { return points }
+        let spacing = max(0.5, min(4, radius / 5))
+        let even = StrokeShape.resample(points, spacing: spacing)
+        let n = even.count
+        guard n > 3 else { return even }
+        let reach = max(1, Int((radius / spacing).rounded()))
+        let sigma = Double(reach) / 2
+        var weights: [Double] = []
+        weights.reserveCapacity(reach + 1)
+        for k in 0...reach { weights.append(exp(-Double(k * k) / (2 * sigma * sigma))) }
+        var out = even
+        for i in 1..<(n - 1) {
+            // Fewer neighbours near the ends, so the ends don't get pulled in.
+            let r = min(reach, i, n - 1 - i)
+            var sx = 0.0, sy = 0.0, sp = 0.0, sw = 0.0
+            for k in -r...r {
+                let w = weights[abs(k)]
+                let q = even[i + k]
+                sx += q.x * w
+                sy += q.y * w
+                sp += q.pressure * w
+                sw += w
+            }
+            out[i].x = sx / sw
+            out[i].y = sy / sw
+            out[i].pressure = sp / sw
+        }
+        return out
+    }
+
     public static func smooth(_ points: [StrokePoint], amount: Double) -> [StrokePoint] {
         let a = min(1, max(0, amount))
         guard points.count > 3, a > 0.01 else { return points }

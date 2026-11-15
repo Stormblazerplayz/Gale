@@ -44,3 +44,30 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         CODE_SIGN_STYLE: Automatic
         ENABLE_PREVIEWS: YES
+  GaleUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: GaleUITests
+    dependencies:
+      - target: Gale
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: com.stormblazerplayz.gale.uitests
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  Gale:
+    build:
+      targets:
+        Gale: all
+        GaleUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - GaleUITests
+    archive:
+      config: Release

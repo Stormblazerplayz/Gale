@@ -7,26 +7,41 @@ import UniformTypeIdentifiers
 @MainActor
 final class ThumbnailCache: ObservableObject {
     @Published private(set) var images: [String: CGImage] = [:]
+    /// Whether each frame's picture has any paint on it (VoiceOver and the UI tests read this).
+    @Published private(set) var inked: [String: Bool] = [:]
     private var keys: [String: Int] = [:]
     private var pending: Set<String> = []
+
+    /// Longest side of a thumbnail in pixels: sharp on Retina screens at the size the strip shows them.
+    static let side: Double = 360
 
     func image(for frame: Frame, project: GaleProject, index: Int) -> CGImage? {
         var h = Hasher()
         h.combine(frame)
         h.combine(project.layers)
-        h.combine(project.canvas.background)
+        h.combine(project.canvas)
         let key = h.finalize()
         if keys[frame.id] != key, !pending.contains(frame.id) {
             pending.insert(frame.id)
-            let p = project
+            var p = project
+            // Only this frame is needed; this keeps the copy small.
+            p.frames = [frame]
             let id = frame.id
-            let scale = CGFloat(120 / max(p.canvas.width, p.canvas.height))
-            Task.detached(priority: .utility) {
-                let img = FrameRenderer.image(p, frameIndex: index, scale: scale)
+            let scale = CGFloat(Self.side / max(1, max(p.canvas.width, p.canvas.height)))
+            // Paper shows behind the picture in the cell, so the picture is just the paint.
+            Task.detached(priority: .utility) { [weak self] in
+                var opts = FrameRenderer.Options()
+                opts.background = false
+                // At least 2.5 thumbnail pixels thick, so thin lines don't vanish when shrunk.
+                opts.minLineWidth = 2.5 / Double(scale)
+                let img = FrameRenderer.image(p, frameIndex: 0, scale: scale, options: opts)
+                let ink = CanvasContentView.inkPixels(img) > 0
                 await MainActor.run {
+                    guard let self else { return }
                     self.pending.remove(id)
                     self.keys[id] = key
                     self.images[id] = img
+                    self.inked[id] = ink
                 }
             }
         }
@@ -63,6 +78,8 @@ struct TimelineStrip: View {
                     LazyHStack(spacing: 6) {
                         ForEach(Array(p.frames.enumerated()), id: \.element.id) { i, frame in
                             FrameCell(index: i, frame: frame, image: thumbs.image(for: frame, project: p, index: i),
+                                      inked: thumbs.inked[frame.id] ?? false,
+                                      paper: p.canvas.background.color,
                                       aspect: aspect,
                                       selected: i == document.currentFrame,
                                       playing: player.isPlaying && i == player.frameIndex)
@@ -153,6 +170,8 @@ struct FrameCell: View {
     var index: Int
     var frame: Frame
     var image: CGImage?
+    var inked: Bool
+    var paper: Color
     var aspect: CGFloat
     var selected: Bool
     var playing: Bool
@@ -162,9 +181,12 @@ struct FrameCell: View {
         let w = min(140, max(40, h * aspect))
         VStack(spacing: 2) {
             ZStack {
-                RoundedRectangle(cornerRadius: 6).fill(Color.white)
+                RoundedRectangle(cornerRadius: 6).fill(paper)
                 if let image {
-                    Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+                    Image(decorative: image, scale: 1)
+                        .resizable()
+                        .interpolation(.high)
+                        .aspectRatio(contentMode: .fit)
                 }
             }
             .frame(width: w, height: h)
@@ -182,6 +204,10 @@ struct FrameCell: View {
             .foregroundStyle(selected ? Theme.accent : .secondary)
         }
         .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Frame \(index + 1)")
+        .accessibilityValue(inked ? "has drawing" : "blank")
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityIdentifier("frame-\(index + 1)")
     }
 }
