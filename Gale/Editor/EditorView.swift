@@ -1,6 +1,7 @@
 import GaleCore
 import GaleFormat
 import SwiftUI
+import UIKit
 
 enum EditorPanel: String, CaseIterable, Identifiable {
     case layers, stash, loops, hair
@@ -66,6 +67,21 @@ struct EditorView: View {
                     PlayerOverlay(player: player, background: document.project.canvas.background.color) {
                         player.stop()
                     }
+                }
+
+                if UITestMode.on && !player.isPlaying {
+                    // Only in UI tests: draws a shaky zigzag through the real drawing steps.
+                    VStack {
+                        HStack {
+                            Button("Test scribble") { NotificationCenter.default.post(name: UITestMode.scribble, object: nil) }
+                                .font(.caption2)
+                                .buttonStyle(.bordered)
+                                .accessibilityIdentifier("testScribble")
+                            Spacer()
+                        }
+                        Spacer()
+                    }
+                    .padding(8)
                 }
 
                 VStack {
@@ -148,6 +164,7 @@ struct EditorView: View {
                 Image(systemName: player.isPlaying ? "stop.fill" : "play.fill")
             }
             .accessibilityLabel(player.isPlaying ? "Stop" : "Play")
+            .accessibilityIdentifier("play")
             Menu {
                 Toggle("Onion skin", isOn: $model.onion.on)
                 Toggle("Frosted glass", isOn: $model.onion.frosted)
@@ -162,17 +179,18 @@ struct EditorView: View {
             } label: {
                 Image(systemName: model.onion.on ? "circle.dashed.inset.filled" : "circle.dashed")
             }
-            .accessibilityLabel("Onion skin")
-            Menu {
-                ForEach(EditorPanel.allCases) { p in
-                    Button { panel = p; showPanel = true } label: { Label(p.title, systemImage: p.icon) }
-                }
-            } label: {
+            .accessibilityLabel("Onion skin options")
+            .accessibilityValue(model.onion.on ? "on" : "off")
+            .accessibilityIdentifier("onion")
+            // One tap opens or closes the side panel. The panel has its own tabs for
+            // Layers, Stash, Loops and Hair, so this does not need a menu.
+            Button { showPanel.toggle() } label: {
                 Image(systemName: "sidebar.right")
-            } primaryAction: {
-                showPanel.toggle()
+                    .symbolVariant(showPanel ? .fill : .none)
             }
             .accessibilityLabel("Panels")
+            .accessibilityValue(showPanel ? "open" : "closed")
+            .accessibilityIdentifier("panels")
             Menu {
                 Button { showStudio = true } label: { Label("Video and audio", systemImage: "film.stack") }
                 Button { showExport = true } label: { Label("Export", systemImage: "square.and.arrow.up") }
@@ -181,6 +199,8 @@ struct EditorView: View {
             } label: {
                 Image(systemName: "ellipsis.circle")
             }
+            .accessibilityLabel("More")
+            .accessibilityIdentifier("more")
         }
     }
 }
@@ -207,6 +227,11 @@ struct PlayerOverlay: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { stop() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Playing")
+        .accessibilityValue(player.image == nil ? "getting ready" : "frame \(player.frameIndex + 1)")
+        .accessibilityIdentifier("player")
+        .accessibilityAddTraits(.isButton)
     }
 }
 
@@ -214,6 +239,7 @@ struct PlayerOverlay: View {
 struct ToolBar: View {
     @ObservedObject var model: EditorModel
     @Binding var showBrush: Bool
+    @State private var showColor = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -228,11 +254,27 @@ struct ToolBar: View {
                         .foregroundStyle(model.tool == t ? Theme.accent : .primary)
                 }
                 .accessibilityLabel(t.title)
+                .accessibilityValue(model.tool == t ? "selected" : "")
+                .accessibilityIdentifier("tool-\(t.rawValue)")
             }
             Divider().frame(height: 28)
-            ColorPicker("Color", selection: Binding(get: { model.color.color }, set: { model.color = RGBA($0) }), supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 36)
+            Button { showColor = true } label: {
+                Circle()
+                    .fill(model.color.color)
+                    .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    .overlay(Circle().strokeBorder(.secondary.opacity(0.5), lineWidth: 0.5))
+                    .frame(width: 30, height: 30)
+                    .frame(width: 36, height: 36)
+            }
+            .accessibilityLabel("Color")
+            .accessibilityValue(showColor ? "picker open" : "picker closed")
+            .accessibilityIdentifier("color")
+            .popover(isPresented: $showColor) {
+                SystemColorPicker(color: Binding(get: { model.color.color }, set: { model.color = RGBA($0) }))
+                    .frame(minWidth: 320, idealWidth: 360, minHeight: 480, idealHeight: 600)
+                    .presentationDetents([.medium, .large])
+                    .presentationCompactAdaptation(.sheet)
+            }
             Button { showBrush = true } label: {
                 Circle()
                     .fill(model.tool == .eraser ? Color.gray : model.color.color)
@@ -241,9 +283,13 @@ struct ToolBar: View {
                     .frame(width: 36, height: 36)
             }
             .accessibilityLabel("Brush size")
+            .accessibilityIdentifier("brushSize")
             .popover(isPresented: $showBrush) {
+                // A Form has no natural height, so a popover would shrink it to one row.
+                // Give it a real size so every setting shows.
                 BrushPanel(model: model)
-                    .frame(minWidth: 300)
+                    .frame(minWidth: 320, idealWidth: 340, minHeight: model.tool == .eraser ? 260 : 480, idealHeight: model.tool == .eraser ? 300 : 560)
+                    .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
             }
         }
@@ -404,6 +450,35 @@ struct EditorSettingsSheet: View {
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+}
+
+/// Apple's full color picker (grid, spectrum, sliders and eyedropper), shown in a popover we control,
+/// so the color button always opens it and its open or closed state is known.
+struct SystemColorPicker: UIViewControllerRepresentable {
+    @Binding var color: Color
+
+    func makeUIViewController(context: Context) -> UIColorPickerViewController {
+        let picker = UIColorPickerViewController()
+        picker.supportsAlpha = false
+        picker.selectedColor = UIColor(color)
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIColorPickerViewController, context: Context) {
+        context.coordinator.parent = self
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIColorPickerViewControllerDelegate {
+        var parent: SystemColorPicker
+        init(_ parent: SystemColorPicker) { self.parent = parent }
+
+        func colorPickerViewController(_ viewController: UIColorPickerViewController, didSelect color: UIColor, continuously: Bool) {
+            parent.color = Color(uiColor: color)
         }
     }
 }

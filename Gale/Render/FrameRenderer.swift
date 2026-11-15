@@ -17,6 +17,8 @@ enum FrameRenderer {
         var layers: Set<String>? = nil
         /// Draw every layer in this one color (used for onion skin ghosts).
         var tint: RGBA? = nil
+        /// Lines are drawn at least this thick, in canvas pixels (so thin lines still show in tiny thumbnails).
+        var minLineWidth: Double = 0
     }
 
     /// Draws a frame into a context that is already set up as canvas pixels, y down.
@@ -54,6 +56,13 @@ enum FrameRenderer {
                         }
                         ctx.restoreGState()
                     }
+                }
+            }
+            if options.minLineWidth > 0 {
+                cel.strokes = cel.strokes.map { st in
+                    var t = st
+                    t.brush.size = max(t.brush.size, options.minLineWidth)
+                    return t
                 }
             }
             StrokeRenderer.draw(cel, in: ctx, tint: options.tint)

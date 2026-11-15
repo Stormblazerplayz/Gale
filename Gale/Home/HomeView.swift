@@ -22,6 +22,8 @@ struct HomeView: View {
                 LazyVGrid(columns: columns, spacing: 16) {
                     Button { showNew = true } label: { NewCard() }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("New project")
+                        .accessibilityIdentifier("newProject")
                     ForEach(library.entries) { entry in
                         Button { path.append(entry.url) } label: { ProjectCard(entry: entry) }
                             .buttonStyle(.plain)
@@ -224,6 +226,7 @@ struct NewProjectSheet: View {
                             self.error = "Couldn't make the project: \(error.localizedDescription)"
                         }
                     }
+                    .accessibilityIdentifier("createProject")
                 }
             }
         }

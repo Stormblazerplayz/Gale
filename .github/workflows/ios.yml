@@ -285,3 +285,110 @@ jobs:
             grep -E "error:" "$LOG" | head -n 40 || true
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  ipad-tests:
+    name: iPad editor tests (draws, checks every button, screenshots)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Pick the newest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Pick an iPad simulator
+        run: |
+          xcrun simctl list devices available -j > "$RUNNER_TEMP/sims.json"
+          python3 tools/pick_ipad.py "$RUNNER_TEMP/sims.json" >> "$GITHUB_ENV"
+          cat "$GITHUB_ENV" | grep SIM_ || true
+
+      - name: Build the app and the tests
+        run: |
+          set -o pipefail
+          xcodebuild build-for-testing \
+            -project Gale.xcodeproj \
+            -scheme Gale \
+            -destination "id=$SIM_UDID" \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            > "$RUNNER_TEMP/build.log" 2>&1 || { grep -E "error:" "$RUNNER_TEMP/build.log" | head -n 40; tail -n 40 "$RUNNER_TEMP/build.log"; exit 1; }
+          echo "Build for testing finished."
+
+      - name: Start the iPad simulator
+        run: |
+          xcrun simctl boot "$SIM_UDID" || true
+          # Wait until the simulator has fully started, so the test runner does not time out while it boots.
+          xcrun simctl bootstatus "$SIM_UDID" -b
+
+      - name: Run the iPad tests
+        run: |
+          set -o pipefail
+          : > "$RUNNER_TEMP/uitests.log"
+          # Retry only when the simulator fails to start the test runner (a known simulator hiccup).
+          # A real test failure is never retried.
+          for TRY in 1 2 3; do
+            RESULT="$RUNNER_TEMP/GaleUITests-$TRY.xcresult"
+            echo "RESULT_BUNDLE=$RESULT" >> "$GITHUB_ENV"
+            STATUS=0
+            xcodebuild test-without-building \
+              -project Gale.xcodeproj \
+              -scheme Gale \
+              -destination "id=$SIM_UDID" \
+              -resultBundlePath "$RESULT" \
+              -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+              > "$RUNNER_TEMP/try-$TRY.log" 2>&1 || STATUS=$?
+            cat "$RUNNER_TEMP/try-$TRY.log" >> "$RUNNER_TEMP/uitests.log"
+            if [ "$STATUS" -ne 0 ] && grep -qE "never finished bootstrapping|before establishing connection|Failed to launch app with identifier|Timed out while launching" "$RUNNER_TEMP/try-$TRY.log"; then
+              echo "::warning::Try $TRY: the simulator could not start the test runner. Restarting the simulator and trying again."
+              xcrun simctl shutdown "$SIM_UDID" || true
+              xcrun simctl boot "$SIM_UDID" || true
+              xcrun simctl bootstatus "$SIM_UDID" -b
+              continue
+            fi
+            break
+          done
+          grep -E "^ +t = |Canvas after|error:|Test Case .*(passed|failed)|\*\* TEST" "$RUNNER_TEMP/uitests.log" | grep -v "Capturing element debug\|Checking .Expect predicate\|Find the .* Any$" | tail -n 250 || true
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::error::The iPad tests failed. Screenshots are in the Gale-iPad-screenshots artifact."
+            tail -n 60 "$RUNNER_TEMP/uitests.log"
+            exit "$STATUS"
+          fi
+
+      - name: Pull out the screenshots
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/shots"
+          if [ -n "${RESULT_BUNDLE:-}" ] && [ -d "$RESULT_BUNDLE" ]; then
+            xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$RUNNER_TEMP/shots" || true
+            python3 tools/name_screenshots.py "$RUNNER_TEMP/shots" || true
+            # What the app looked like to the test when it failed (helps fix a failure without the screenshots).
+            for f in "$RUNNER_TEMP/shots"/App\ UI\ hierarchy*; do
+              [ -f "$f" ] && { echo "::group::$(basename "$f")"; head -c 12000 "$f"; echo; echo "::endgroup::"; }
+            done
+          fi
+          cp "$RUNNER_TEMP/uitests.log" "$RUNNER_TEMP/shots/" 2>/dev/null || true
+          {
+            echo "## iPad editor tests"
+            echo '```'
+            grep -E "Test Case .*(passed|failed)|error:" "$RUNNER_TEMP/uitests.log" | tail -n 30 || true
+            echo '```'
+            echo "Screenshots:"
+            ls "$RUNNER_TEMP/shots" | grep -i png | sed 's/^/- /' || true
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Save the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gale-iPad-screenshots-${{ github.run_number }}
+          path: ${{ runner.temp }}/shots
+          if-no-files-found: warn
+          retention-days: 14

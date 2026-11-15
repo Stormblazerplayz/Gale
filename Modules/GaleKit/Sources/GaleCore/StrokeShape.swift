@@ -94,10 +94,84 @@ public enum StrokeShape {
 
     /// The filled outline of a stroke (a closed polygon). Fill it with the non-zero rule.
     public static func outline(of stroke: Stroke, spacing: Double = 3) -> [Vec2] {
-        let pts = densify(dedupe(stroke.points), spacing: spacing)
+        let curved = densify(dedupe(stroke.points), spacing: spacing)
+        // Even steps along the line: tiny uneven steps are what make kinks in the edges.
+        let step = max(0.75, min(spacing, stroke.brush.size * 0.2))
+        let pts = resample(curved, spacing: step)
         let n = pts.count
-        let ws = pts.enumerated().map { width(of: $0.element, brush: stroke.brush, index: $0.offset, count: n) }
+        var ws = pts.enumerated().map { width(of: $0.element, brush: stroke.brush, index: $0.offset, count: n) }
+        ws = smoothValues(ws, radius: 2)
         return outline(points: pts.map { Vec2($0) }, widths: ws)
+    }
+
+    /// Points spread evenly along the line, `spacing` canvas pixels apart. Keeps the first and last point.
+    public static func resample(_ pts: [StrokePoint], spacing: Double) -> [StrokePoint] {
+        guard pts.count > 1 else { return pts }
+        let step = max(0.05, spacing)
+        var out: [StrokePoint] = [pts[0]]
+        out.reserveCapacity(pts.count)
+        var carried = 0.0 // distance walked since the last point we kept
+        for i in 0..<(pts.count - 1) {
+            let a = pts[i], b = pts[i + 1]
+            let seg = Vec2(a).distance(to: Vec2(b))
+            if seg <= 0 { continue }
+            var at = step - carried
+            while at <= seg {
+                let t = at / seg
+                var q = a
+                q.x = a.x + (b.x - a.x) * t
+                q.y = a.y + (b.y - a.y) * t
+                q.pressure = a.pressure + (b.pressure - a.pressure) * t
+                q.altitude = a.altitude + (b.altitude - a.altitude) * t
+                q.azimuth = a.azimuth + (b.azimuth - a.azimuth) * t
+                q.time = a.time + (b.time - a.time) * t
+                out.append(q)
+                at += step
+            }
+            carried = seg - (at - step)
+        }
+        let last = pts[pts.count - 1]
+        if let end = out.last, Vec2(end).distance(to: Vec2(last)) > step * 0.35 {
+            out.append(last)
+        } else if out.count > 1 {
+            out[out.count - 1] = last
+        } else if Vec2(pts[0]).distance(to: Vec2(last)) > 0 {
+            out.append(last)
+        }
+        return out
+    }
+
+    /// Evens out a list of numbers (like widths) with their neighbours.
+    static func smoothValues(_ v: [Double], radius: Int) -> [Double] {
+        guard v.count > 2, radius > 0 else { return v }
+        var out = v
+        for i in 0..<v.count {
+            let lo = max(0, i - radius), hi = min(v.count - 1, i + radius)
+            var s = 0.0, w = 0.0
+            for k in lo...hi {
+                let wk = Double(radius + 1 - abs(k - i))
+                s += v[k] * wk
+                w += wk
+            }
+            out[i] = s / w
+        }
+        return out
+    }
+
+    /// The sharpest bend in a line, in degrees, measured over steps of `spacing` canvas pixels.
+    /// A smooth curve stays low; a kink or corner shows up as a big number.
+    public static func sharpestBend(_ pts: [StrokePoint], spacing: Double = 4) -> Double {
+        let even = resample(dedupe(pts), spacing: spacing)
+        guard even.count > 2 else { return 0 }
+        var worst = 0.0
+        for i in 1..<(even.count - 1) {
+            let d1 = Vec2(even[i]) - Vec2(even[i - 1])
+            let d2 = Vec2(even[i + 1]) - Vec2(even[i])
+            guard d1.length > spacing * 0.5, d2.length > spacing * 0.5 else { continue }
+            let c = max(-1, min(1, d1.normalized.dot(d2.normalized)))
+            worst = max(worst, acos(c) * 180 / Double.pi)
+        }
+        return worst
     }
 
     /// Outline from centers and widths: a round cap, one side, a round cap, the other side.
@@ -110,8 +184,9 @@ public enum StrokeShape {
         var normals: [Vec2] = []
         normals.reserveCapacity(n)
         for i in 0..<n {
-            let a = points[max(0, i - 1)]
-            let b = points[min(n - 1, i + 1)]
+            // Looking two points each way keeps the edges from wobbling on tiny steps.
+            let a = points[max(0, i - 2)]
+            let b = points[min(n - 1, i + 2)]
             var dir = (b - a).normalized
             if dir == .zero { dir = Vec2(1, 0) }
             normals.append(dir.perpendicular)
