@@ -71,7 +71,7 @@ final class FormatTests: XCTestCase {
     }
 
     func testProjectRoundTrip() throws {
-        var p = GaleProject(name: "Test", canvas: Canvas(width: 800, height: 600), fps: 24)
+        var p = GaleProject(name: "Test", canvas: GaleCanvas(width: 800, height: 600), fps: 24)
         p.created = Date(timeIntervalSince1970: 1_700_000_000)
         p.modified = p.created
         let layer2 = p.addLayer(name: "Color")

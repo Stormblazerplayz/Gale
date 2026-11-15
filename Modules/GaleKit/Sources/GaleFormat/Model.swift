@@ -546,7 +546,7 @@ public struct Movie: Codable, Hashable, Sendable {
 
 // MARK: - Project
 
-public struct Canvas: Codable, Hashable, Sendable {
+public struct GaleCanvas: Codable, Hashable, Sendable {
     public var width: Double
     public var height: Double
     public var background: RGBA
@@ -575,7 +575,7 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
     public var name: String
     public var created: Date
     public var modified: Date
-    public var canvas: Canvas
+    public var canvas: GaleCanvas
     /// Ticks per second for the animation (1...60).
     public var fps: Int
     public var motionBlur: MotionBlurSettings
@@ -587,7 +587,7 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
     public var movie: Movie
     public var media: [MediaItem]
 
-    public init(id: String = GaleID.make(), name: String, canvas: Canvas = Canvas(), fps: Int = 12) {
+    public init(id: String = GaleID.make(), name: String, canvas: GaleCanvas = GaleCanvas(), fps: Int = 12) {
         format = GaleProject.formatName
         self.id = id
         self.name = name
@@ -614,7 +614,7 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
         name = c.value(.name, or: "Untitled")
         created = c.value(.created, or: Date())
         modified = c.value(.modified, or: created)
-        canvas = c.value(.canvas, or: Canvas())
+        canvas = c.value(.canvas, or: GaleCanvas())
         fps = min(60, max(1, c.value(.fps, or: 12)))
         motionBlur = c.value(.motionBlur, or: MotionBlurSettings())
         layers = c.value(.layers, or: [])

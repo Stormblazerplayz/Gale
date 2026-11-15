@@ -147,7 +147,7 @@ struct NewProjectSheet: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
                         do {
-                            let canvas = Canvas(width: preset.width, height: preset.height, background: RGBA(background))
+                            let canvas = GaleCanvas(width: preset.width, height: preset.height, background: RGBA(background))
                             let clean = name.trimmingCharacters(in: .whitespacesAndNewlines)
                             let url = try library.create(name: clean.isEmpty ? "My animation" : clean, canvas: canvas, fps: fps)
                             onCreate(url)

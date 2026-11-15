@@ -20,7 +20,7 @@ final class ProjectLibrary: ObservableObject {
         var id: String?
         var name: String?
         var modified: Date?
-        var canvas: Canvas?
+        var canvas: GaleCanvas?
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -67,7 +67,7 @@ final class ProjectLibrary: ObservableObject {
     }
 
     @discardableResult
-    func create(name: String, canvas: Canvas, fps: Int) throws -> URL {
+    func create(name: String, canvas: GaleCanvas, fps: Int) throws -> URL {
         let project = GaleProject(name: name, canvas: canvas, fps: fps)
         let url = freshFolder(for: name)
         try GaleIO.writeProject(project, to: url)
