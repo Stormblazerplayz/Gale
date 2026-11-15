@@ -1,0 +1,61 @@
+name: Desktop
+
+# Pull requests and pushes to main (when desktop files change): install and run the tests.
+# Pushing a tag like desktop-v1.0.0: also build the Windows installer and publish it
+# to a GitHub release, which is where the app's auto-updater looks for new versions.
+# The version in desktop/package.json should match the tag (desktop-v1.0.0 -> "1.0.0").
+
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+  push:
+    branches: [main]
+    # GitHub skips the paths check for tag pushes, so desktop-v* tags always run.
+    tags: ["desktop-v*"]
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    working-directory: desktop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci && npm test
+
+  windows:
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+    needs: test
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - run: npm ci
+      - run: npm run bundle
+      - run: npx electron-builder --win --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
