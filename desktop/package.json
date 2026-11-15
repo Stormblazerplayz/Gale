@@ -61,7 +61,8 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Gale"
+      "shortcutName": "Gale",
+      "artifactName": "Gale-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [

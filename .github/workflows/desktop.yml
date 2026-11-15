@@ -42,7 +42,7 @@ jobs:
       - run: npm ci && npm test
 
   windows:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    # Pull requests build the installer to check it; only main publishes it.
     needs: test
     runs-on: windows-latest
     permissions:
@@ -56,6 +56,45 @@ jobs:
           cache-dependency-path: desktop/package-lock.json
       - run: npm ci
       - run: npm run bundle
-      - run: npx electron-builder --win --publish always
+      - name: Skip if this version is already released
+        id: check
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] || [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "v$VERSION is already released. Raise the version in desktop/package.json to ship an update."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build the Windows installer
+        if: steps.check.outputs.skip == 'false' || steps.check.outputs.publish == 'false'
+        run: npx electron-builder --win --publish never
+      - name: Check the installer files are there
+        if: steps.check.outputs.skip == 'false' || steps.check.outputs.publish == 'false'
+        shell: bash
+        run: |
+          ls -la dist
+          test -f "dist/Gale-Setup-$(node -p "require('./package.json').version").exe"
+          test -f dist/latest.yml
+          cat dist/latest.yml
+      - name: Publish the GitHub release (the auto-updater reads latest.yml from it)
+        if: steps.check.outputs.skip == 'false' && steps.check.outputs.publish == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ steps.check.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Gale for Windows ${{ steps.check.outputs.tag }}" \
+            --notes "Download the Setup .exe below and run it. Gale updates itself after that." \
+            dist/*.exe dist/*.exe.blockmap dist/latest.yml
