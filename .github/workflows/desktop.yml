@@ -69,10 +69,13 @@ jobs:
           else
             echo "publish=true" >> "$GITHUB_OUTPUT"
           fi
-          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+          ASSETS=$(gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' 2>/dev/null) && EXISTS=true || EXISTS=false
+          echo "exists=$EXISTS" >> "$GITHUB_OUTPUT"
+          if [ "$EXISTS" = true ] && echo "$ASSETS" | grep -qx "latest.yml" && echo "$ASSETS" | grep -qx "Gale-Setup-$VERSION.exe"; then
             echo "v$VERSION is already released. Raise the version in desktop/package.json to ship an update."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
+            # Not released yet, or a release missing its installer: build (and fill it in).
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
       - name: Build the Windows installer
@@ -92,9 +95,18 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ steps.check.outputs.tag }}" \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Gale for Windows ${{ steps.check.outputs.tag }}" \
-            --notes "Download the Setup .exe below and run it. Gale updates itself after that." \
-            dist/*.exe dist/*.exe.blockmap dist/latest.yml
+          TAG="${{ steps.check.outputs.tag }}"
+          if [ "${{ steps.check.outputs.exists }}" = true ]; then
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+              dist/*.exe dist/*.exe.blockmap dist/latest.yml
+            gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false \
+              --title "Gale for Windows $TAG" \
+              --notes "Download the Setup .exe below and run it. Gale updates itself after that."
+          else
+            gh release create "$TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Gale for Windows $TAG" \
+              --notes "Download the Setup .exe below and run it. Gale updates itself after that." \
+              dist/*.exe dist/*.exe.blockmap dist/latest.yml
+          fi
