@@ -322,7 +322,7 @@ jobs:
             -resultBundlePath "$RUNNER_TEMP/GaleUITests.xcresult" \
             -derivedDataPath "$RUNNER_TEMP/DerivedData" \
             > "$RUNNER_TEMP/uitests.log" 2>&1 || STATUS=$?
-          grep -E "error:|Test Case .*(passed|failed)|XCTAssert|\*\* TEST" "$RUNNER_TEMP/uitests.log" | tail -n 80 || true
+          grep -E "^ +t = |Canvas after|error:|Test Case .*(passed|failed)|\*\* TEST" "$RUNNER_TEMP/uitests.log" | grep -v "Capturing element debug\|Checking .Expect predicate\|Find the .* Any$" | tail -n 250 || true
           if [ -n "${STATUS:-}" ]; then
             echo "::error::The iPad tests failed. Screenshots are in the Gale-iPad-screenshots artifact."
             tail -n 60 "$RUNNER_TEMP/uitests.log"
@@ -336,6 +336,10 @@ jobs:
           if [ -d "$RUNNER_TEMP/GaleUITests.xcresult" ]; then
             xcrun xcresulttool export attachments --path "$RUNNER_TEMP/GaleUITests.xcresult" --output-path "$RUNNER_TEMP/shots" || true
             python3 tools/name_screenshots.py "$RUNNER_TEMP/shots" || true
+            # What the app looked like to the test when it failed (helps fix a failure without the screenshots).
+            for f in "$RUNNER_TEMP/shots"/App\ UI\ hierarchy*; do
+              [ -f "$f" ] && { echo "::group::$(basename "$f")"; head -c 12000 "$f"; echo; echo "::endgroup::"; }
+            done
           fi
           cp "$RUNNER_TEMP/uitests.log" "$RUNNER_TEMP/shots/" 2>/dev/null || true
           {

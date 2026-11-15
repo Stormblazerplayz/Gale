@@ -114,6 +114,41 @@ final class CanvasScrollView: UIView, UIGestureRecognizerDelegate {
 
     required init?(coder: NSCoder) { fatalError("Not used") }
 
+    /// The back gesture this screen turned off, so it can be turned on again when you leave.
+    private weak var pausedBackGesture: UIGestureRecognizer?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window != nil {
+            pauseFullScreenBackSwipe()
+        } else {
+            pausedBackGesture?.isEnabled = true
+            pausedBackGesture = nil
+        }
+    }
+
+    /// Since iPadOS 26 a swipe to the right anywhere on the screen goes back a page. On a drawing screen
+    /// that steals every left-to-right line, so it's turned off here. The swipe from the very left edge still goes back.
+    private func pauseFullScreenBackSwipe() {
+        var responder: UIResponder? = self
+        var nav: UINavigationController?
+        while let r = responder {
+            if let vc = r as? UIViewController, let n = vc.navigationController ?? (vc as? UINavigationController) {
+                nav = n
+                break
+            }
+            responder = r.next
+        }
+        guard let nav else { return }
+        let key = "interactiveContentPopGestureRecognizer"
+        guard nav.responds(to: NSSelectorFromString(key)),
+              let g = nav.value(forKey: key) as? UIGestureRecognizer else { return }
+        if g.isEnabled {
+            g.isEnabled = false
+            pausedBackGesture = g
+        }
+    }
+
     @objc private func undoTapped() { canvas.cancelStroke(); canvas.actions?.undo() }
     @objc private func redoTapped() { canvas.cancelStroke(); canvas.actions?.redo() }
     @objc private func fitTapped() { zoomToFit(animated: true) }

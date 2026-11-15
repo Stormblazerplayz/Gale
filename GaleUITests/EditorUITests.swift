@@ -38,7 +38,8 @@ final class EditorUITests: XCTestCase {
         let p = NSPredicate(format: "value CONTAINS %@", text)
         let exp = XCTNSPredicateExpectation(predicate: p, object: e)
         let result = XCTWaiter().wait(for: [exp], timeout: timeout)
-        XCTAssertEqual(result, .completed, "\(message) (value was: \(e.value as? String ?? "nil"))")
+        let now = e.exists ? (e.value as? String ?? "nil") : "the element is gone"
+        XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
     }
 
     /// Waits until a number in the canvas description passes a check, and returns it.
@@ -119,6 +120,9 @@ final class EditorUITests: XCTestCase {
 
         // 2. Draw a line with a finger.
         drawLine(from: CGVector(dx: 0.2, dy: 0.3), to: CGVector(dx: 0.8, dy: 0.7))
+        shot("02a Right after the first line")
+        print("Canvas after the first line: \(canvasValue())")
+        XCTAssertTrue(canvas.waitForExistence(timeout: 3), "Drawing a line to the right left the editor (the back swipe took it)")
         waitForValue(canvas, contains: "strokes 1,", "Drawing a line should add one stroke")
         let ink = waitForNumber("ink", "The line should show up on the canvas") { $0 > 40 }
         let straightBend = number("bend", in: canvasValue())

@@ -20,6 +20,14 @@ for test in manifest if isinstance(manifest, list) else [manifest]:
         base, ext = os.path.splitext(src)
         if not os.path.splitext(name)[1]:
             name += ext
-        dst = os.path.join(folder, name.replace("/", "-"))
+        # Artifact uploads refuse " : < > | * ? and newlines in file names.
+        name = re.sub(r'[\\/"`:<>|*?\r\n]+', "", name).strip() or os.path.basename(src)
+        dst = os.path.join(folder, name)
         if dst != src and not os.path.exists(dst):
             os.rename(src, dst)
+
+# Anything left with a name that can't be uploaded gets a plain name.
+for f in os.listdir(folder):
+    clean = re.sub(r'[\\"`:<>|*?\r\n]+', "", f).strip()
+    if clean and clean != f and not os.path.exists(os.path.join(folder, clean)):
+        os.rename(os.path.join(folder, f), os.path.join(folder, clean))
