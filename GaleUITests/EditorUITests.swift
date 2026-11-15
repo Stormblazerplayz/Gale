@@ -69,8 +69,16 @@ final class EditorUITests: XCTestCase {
     func canvasValue() -> String { element("canvas").value as? String ?? "" }
 
     /// Taps somewhere harmless to close a menu or popover (the top-left corner, over the status bar area).
+    /// Close a popover or menu the way a person would: tap outside it.
+    /// The very top corner is the status bar, which iPadOS ignores, so tap the
+    /// popover's dismiss area on the left side, or the empty middle of the top bar.
     func tapAway() {
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.01)).tap()
+        let dismiss = app.otherElements["PopoverDismissRegion"]
+        if dismiss.exists {
+            dismiss.coordinate(withNormalizedOffset: CGVector(dx: 0.12, dy: 0.5)).tap()
+        } else {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.055)).tap()
+        }
     }
 
     func openNewProject() {
