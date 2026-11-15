@@ -1,0 +1,42 @@
+# XcodeGen spec. The Xcode project is made from this file (run `xcodegen generate`),
+# so Gale.xcodeproj is never committed.
+name: Gale
+options:
+  bundleIdPrefix: com.stormblazerplayz
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    SWIFT_VERSION: "5.0"
+    # The CI build can change this with GALE_BUNDLE_ID=...
+    GALE_BUNDLE_ID: com.stormblazerplayz.gale
+packages:
+  GaleKit:
+    path: Modules/GaleKit
+targets:
+  Gale:
+    type: application
+    platform: iOS
+    sources:
+      - path: Gale
+    dependencies:
+      - package: GaleKit
+        product: GaleFormat
+      - package: GaleKit
+        product: GaleCore
+      - package: GaleKit
+        product: GaleSync
+    settings:
+      base:
+        PRODUCT_NAME: Gale
+        PRODUCT_BUNDLE_IDENTIFIER: $(GALE_BUNDLE_ID)
+        INFOPLIST_FILE: Config/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
