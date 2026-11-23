@@ -402,13 +402,13 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         return n
     }
 
-    /// UI tests only: draws a quick, shaky zigzag through the same steps as a real finger,
-    /// so the test can check that the line comes out smooth.
+    /// UI tests only: draws a quick, shaky wave through the same steps as a real finger,
+    /// so the test can check that the wobble comes out smooth.
     @objc private func drawTestScribble() {
         guard let s = state, s.tool == .brush || s.tool == .eraser else { return }
         let z = Double(max(0.05, zoom))
         let size = s.project.canvas
-        // A zigzag about 300 points wide on screen, around the middle of the paper.
+        // A wave about 300 points wide on screen, around the middle of the paper.
         let cx = size.width / 2, cy = size.height / 2
         var pts: [StrokePoint] = []
         var seed: UInt64 = 42
@@ -416,20 +416,13 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
             seed = seed &* 6364136223846793005 &+ 1442695040888963407
             return (Double(seed >> 33) / Double(1 << 31)) * 2 - 1
         }
-        let corners: [(Double, Double)] = [(-150, 40), (-90, -40), (-30, 40), (30, -40), (90, 40), (150, -40)]
-        var t = 0.0
-        for c in 0..<(corners.count - 1) {
-            let a = corners[c], b = corners[c + 1]
-            for k in 0..<30 {
-                let f = Double(k) / 30
-                // Screen points with a shaky hand (1.5 points of wobble), then turned into canvas pixels.
-                let sx = a.0 + (b.0 - a.0) * f + wobble() * 1.5
-                let sy = a.1 + (b.1 - a.1) * f + wobble() * 1.5
-                pts.append(StrokePoint(x: cx + sx / z, y: cy + sy / z, pressure: 0.5, time: t))
-                t += 1.0 / 120
-            }
+        for i in 0...150 {
+            // Screen points with a shaky hand (1.5 points of wobble), then turned into canvas pixels.
+            let x = Double(i) * 2
+            let sx = x - 150 + wobble() * 1.5
+            let sy = sin(x / 40) * 40 + wobble() * 1.5
+            pts.append(StrokePoint(x: cx + sx / z, y: cy + sy / z, pressure: 0.5, time: Double(i) / 120))
         }
-        pts.append(StrokePoint(x: cx + 150 / z, y: cy - 40 / z, pressure: 0.5, time: t))
         guard beginLine(pts[0]) else { return }
         for p in pts.dropFirst() { continueLine([p]) }
         finishLine(pts[pts.count - 1])
@@ -741,7 +734,8 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         case .brush, .eraser:
             let samples = event?.coalescedTouches(for: touch) ?? [touch]
             var predicted: [StrokePoint] = []
-            if s.smoothing < 0.15, let pred = event?.predictedTouches(for: touch) {
+            // Predicted touches cut lag, but only make sense when nothing holds the line back.
+            if s.smoothing < StrokeSmoothing.stringStarts, let pred = event?.predictedTouches(for: touch) {
                 predicted = pred.map { point(for: $0, start: strokeStart) }
             }
             continueLine(samples.map { point(for: $0, start: strokeStart) }, predicted: predicted)
@@ -849,10 +843,10 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         actions?.commitStroke(stroke)
     }
 
-    /// Rounds off kinks and corners the same way while drawing and when you lift, so the line never jumps.
+    /// Evens out wobbles the same way while drawing and when you lift, so the line never jumps.
+    /// Corners and short strokes (eyes, mouths) keep the shape you drew.
     private func rounded(_ pts: [StrokePoint], smoothing: Double) -> [StrokePoint] {
-        guard smoothing > 0.02 else { return pts }
-        return StrokeSmoother.round(pts, radius: StrokeSmoother.radius(amount: smoothing, scale: lineScale))
+        StrokeSmoothing.shape(pts, amount: smoothing, scale: lineScale)
     }
 
     private func updateLivePath(predicted: [StrokePoint]) {

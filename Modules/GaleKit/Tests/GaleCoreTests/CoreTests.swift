@@ -45,7 +45,7 @@ final class StabilizerTests: XCTestCase {
 
     func testShakyHandsBecomeSmooth() {
         let raw = shakyLine(seed: 7, wobble: 8)
-        let smooth = StrokeStabilizer.stabilize(raw, amount: 0.8)
+        let smooth = StrokeSmoothing.finish(raw, amount: 0.8)
         let before = averageWobble(raw)
         let after = averageWobble(smooth)
         XCTAssertGreaterThan(before, 3.5)
@@ -78,11 +78,35 @@ final class StabilizerTests: XCTestCase {
     func testTinyWigglesInsideTheStringDontMove() {
         let s = StrokeStabilizer(amount: 1)
         _ = s.begin(StrokePoint(x: 100, y: 100))
+        // A long line first, so the string has grown to full length.
+        for i in 1...100 { _ = s.add(StrokePoint(x: 100 + Double(i) * 2, y: 100)) }
+        // Let the brush settle on the string.
+        for _ in 0..<20 { _ = s.add(StrokePoint(x: 300, y: 100)) }
         var moved: [StrokePoint] = []
         for i in 0..<30 {
-            moved += s.add(StrokePoint(x: 100 + Double(i % 3) * 3, y: 100 - Double(i % 2) * 3))
+            moved += s.add(StrokePoint(x: 296 - Double(i % 3) * 3, y: 100 - Double(i % 2) * 3))
         }
         XCTAssertTrue(moved.isEmpty, "the brush moved \(moved.count) times for tiny wiggles")
+    }
+
+    func testStringStartsShortSoShortStrokesDrawExactly() {
+        let s = StrokeStabilizer(amount: 1)
+        _ = s.begin(StrokePoint(x: 0, y: 0))
+        XCTAssertEqual(s.stringLength, 0, accuracy: 0.0001)
+        _ = s.add(StrokePoint(x: 10, y: 0))
+        XCTAssertLessThanOrEqual(s.stringLength, 1.0001, "a 10 pixel stroke should barely be held back")
+        for i in 2...200 { _ = s.add(StrokePoint(x: Double(i) * 5, y: 0)) }
+        XCTAssertEqual(s.stringLength, s.maxStringLength, accuracy: 0.0001)
+    }
+
+    func testLightSmoothingHasNoStringLag() {
+        // At the default strength the line stays right under the pen while you draw.
+        let s = StrokeStabilizer(amount: StrokeSmoothing.defaultAmount)
+        XCTAssertEqual(s.maxStringLength, 0)
+        _ = s.begin(StrokePoint(x: 0, y: 0))
+        let out = s.add(StrokePoint(x: 40, y: 25))
+        XCTAssertEqual(out.last?.x ?? -1, 40, accuracy: 0.0001)
+        XCTAssertEqual(out.last?.y ?? -1, 25, accuracy: 0.0001)
     }
 
     func testFinalSmoothingKeepsEnds() {
@@ -487,30 +511,60 @@ final class StrokeRoundingTests: XCTestCase {
         return pts
     }
 
-    /// The same steps the canvas takes when you lift your finger.
-    func finish(_ raw: [StrokePoint], amount: Double, scale: Double = 1) -> [StrokePoint] {
-        let st = StrokeStabilizer.stabilize(raw, amount: amount, scale: scale)
-        return StrokeSmoother.round(StrokeShape.dedupe(st), radius: StrokeSmoother.radius(amount: amount, scale: scale))
+    /// A smooth wave (no corners) drawn with a shaky hand.
+    func shakyWave(seed: UInt64, wobble: Double = 1.5) -> [StrokePoint] {
+        var rng = SeededRandom(seed)
+        return (0...150).map { i in
+            let x = Double(i) * 2
+            return StrokePoint(x: 100 + x + rng.signed() * wobble, y: 300 + sin(x / 40) * 40 + rng.signed() * wobble,
+                               pressure: 0.5, time: Double(i) / 120)
+        }
     }
 
-    func testCornersAndWobblesGetRounded() {
+    /// The same steps the canvas takes when you lift your finger.
+    func finish(_ raw: [StrokePoint], amount: Double, scale: Double = 1) -> [StrokePoint] {
+        StrokeSmoothing.finish(raw, amount: amount, scale: scale)
+    }
+
+    func testWobblesGetRounded() {
+        for seed: UInt64 in [3, 7, 9, 21, 42] {
+            let raw = shakyWave(seed: seed)
+            let before = StrokeShape.sharpestBend(raw)
+            let after = StrokeShape.sharpestBend(finish(raw, amount: StrokeSmoothing.defaultAmount))
+            XCTAssertGreaterThan(before, 45, "the test line should start out jagged")
+            XCTAssertLessThan(after, 35, "seed \(seed): sharpest bend went from \(before) to \(after) degrees")
+        }
+    }
+
+    func testZigzagCornersStayWhereYouDrewThem() {
         let raw = shakyZigzag(seed: 9)
-        let before = StrokeShape.sharpestBend(raw)
-        let after = StrokeShape.sharpestBend(finish(raw, amount: 0.55))
-        XCTAssertGreaterThan(before, 60, "the test line should start out jagged")
-        XCTAssertLessThan(after, 30, "sharpest bend went from \(before) to \(after) degrees")
+        let out = finish(raw, amount: StrokeSmoothing.defaultAmount)
+        for c in [(160.0, 220.0), (220.0, 300.0), (280.0, 220.0), (340.0, 300.0)] {
+            let miss = out.map { Vec2($0).distance(to: Vec2(c.0, c.1)) }.min() ?? .infinity
+            XCTAssertLessThan(miss, 2, "corner at \(c) was cut by \(miss) pixels")
+        }
     }
 
     func testRoundingWorksZoomedOut() {
         // Zoomed out, canvas pixels are bigger on screen, so the same hand wobble is many canvas pixels.
-        let raw = shakyZigzag(seed: 4).map { p -> StrokePoint in
+        let raw = shakyWave(seed: 4).map { p -> StrokePoint in
             var q = p
             q.x *= 4
             q.y *= 4
             return q
         }
-        let after = StrokeShape.sharpestBend(finish(raw, amount: 0.55, scale: 4), spacing: 16)
-        XCTAssertLessThan(after, 30, "sharpest bend \(after) degrees")
+        let after = StrokeShape.sharpestBend(finish(raw, amount: StrokeSmoothing.defaultAmount, scale: 4), spacing: 16)
+        XCTAssertLessThan(after, 35, "sharpest bend \(after) degrees")
+        // Corners are kept zoomed out too.
+        let zig = shakyZigzag(seed: 5).map { p -> StrokePoint in
+            var q = p
+            q.x *= 4
+            q.y *= 4
+            return q
+        }
+        let out = finish(zig, amount: StrokeSmoothing.defaultAmount, scale: 4)
+        let miss = out.map { Vec2($0).distance(to: Vec2(220 * 4, 300 * 4)) }.min() ?? .infinity
+        XCTAssertLessThan(miss, 8, "zoomed-out corner was cut by \(miss) canvas pixels (2 screen points allowed)")
     }
 
     func testRoundingKeepsEnds() {
@@ -532,7 +586,7 @@ final class StrokeRoundingTests: XCTestCase {
     }
 
     func testOutlineEdgesAreSmooth() {
-        let pts = finish(shakyZigzag(seed: 6), amount: 0.55)
+        let pts = finish(shakyWave(seed: 6), amount: StrokeSmoothing.defaultAmount)
         let stroke = Stroke(brush: Brush(kind: .pen, color: .black, size: 10), points: pts)
         let poly = StrokeShape.outline(of: stroke)
         // Walk one edge (the first half of the outline) and look for sudden jumps in direction.

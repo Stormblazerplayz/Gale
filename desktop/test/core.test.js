@@ -15,7 +15,7 @@ test('stabilizer smooths a shaky line', () => {
     shaky.push(Model.point(i * 2, 100 + jitter, 0.5));
   }
   const before = wobble(shaky);
-  const smooth = Stabilizer.StrokeStabilizer.stabilize(shaky, 0.6);
+  const smooth = Stabilizer.finish(shaky, 0.6);
   const after = wobble(smooth.slice(5, -5));
   assert.ok(smooth.length > 20);
   assert.ok(after < before * 0.3, `wobble ${after.toFixed(3)} vs ${before.toFixed(3)}`);
@@ -31,6 +31,53 @@ test('stabilizer smooths a shaky line', () => {
   assert.deepEqual(sm[0], shaky[0]);
   assert.deepEqual(sm[sm.length - 1], shaky[shaky.length - 1]);
   assert.ok(wobble(sm) < before);
+});
+
+test('smoothing keeps eyes, short strokes and corners the way you drew them', () => {
+  const D = Stabilizer.DEFAULT_AMOUNT;
+  assert.ok(D > 0 && D <= 0.3, 'default smoothing is light');
+  // A small eye stays round and closes where the pen lifted.
+  for (const r of [5, 8, 12]) {
+    const n = r * 4;
+    const raw = [];
+    for (let i = 0; i <= n; i++) {
+      const a = (i / n) * 2 * Math.PI;
+      raw.push(Model.point(200 + Math.cos(a) * r, 200 + Math.sin(a) * r, 0.5));
+    }
+    const out = Stabilizer.finish(raw, D);
+    const worst = Math.max(...out.map((p) => Math.abs(Math.hypot(p.x - 200, p.y - 200) - r)));
+    assert.ok(worst < Math.max(0.5, r * 0.06), `a ${r}px eye came out ${worst.toFixed(2)}px off`);
+    assert.ok(Math.abs(out[out.length - 1].x - raw[raw.length - 1].x) < 1e-6);
+  }
+  // A right-angle corner stays sharp.
+  const corner = [];
+  for (let x = 100; x < 140; x += 1.5) corner.push(Model.point(x, 100, 0.5));
+  for (let y = 100; y <= 140; y += 1.5) corner.push(Model.point(140, y, 0.5));
+  const c = Stabilizer.finish(corner, D);
+  const miss = Math.min(...c.map((p) => Math.hypot(p.x - 140, p.y - 100)));
+  assert.ok(miss < 0.6, `the corner was cut by ${miss.toFixed(2)}px`);
+  // A short stroke keeps its length.
+  const short = [];
+  for (let x = 0; x <= 8; x++) short.push(Model.point(100 + x, 100, 0.5));
+  const so = Stabilizer.finish(short, D);
+  let len = 0;
+  for (let i = 1; i < so.length; i++) len += Math.hypot(so[i].x - so[i - 1].x, so[i].y - so[i - 1].y);
+  assert.ok(Math.abs(len - 8) < 0.3, `an 8px stroke came out ${len.toFixed(2)} long`);
+  // Hand shake on a straight line is not a corner.
+  const shake = [];
+  for (let i = 0; i <= 200; i++) shake.push(Model.point(i * 2 + Math.sin(i * 2.7) * 1.2, 100 + Math.sin(i * 7.3) * 1.2, 0.5));
+  const even = Stabilizer.resample(shake, 1);
+  assert.equal(Stabilizer.corners(even, Stabilizer.CORNER_ARM, Stabilizer.CORNER_ANGLE, 1).length, 0);
+  // Off draws exactly, and the label says so.
+  const off = Stabilizer.finish(corner, 0);
+  assert.equal(off.length, corner.length);
+  assert.equal(off[5].x, corner[5].x);
+  assert.equal(Stabilizer.label(0), 'Off');
+  assert.equal(Stabilizer.label(0.25), '25%');
+  // The string starts short, so a short stroke isn't held back even at full strength.
+  const st = new Stabilizer.StrokeStabilizer(1);
+  st.begin(Model.point(0, 0));
+  assert.equal(st.stringLength, 0);
 });
 
 test('stroke shape widths and alpha match the Swift numbers', () => {

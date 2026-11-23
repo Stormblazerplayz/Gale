@@ -147,20 +147,35 @@ final class EditorUITests: XCTestCase {
         // 3. The frame thumbnail shows the drawing.
         waitForValue(element("frame-1"), contains: "has drawing", "Frame 1's thumbnail should show the line")
 
-        // 4. A shaky zigzag comes out smooth (same steps as a real finger, with a shaky hand).
+        // 4. A shaky wave comes out smooth (same steps as a real finger, with a shaky hand).
         waitFor(element("testScribble"), "Test scribble button").tap()
         waitForValue(canvas, contains: "strokes 2,", "The test scribble should add a stroke")
         let bend = number("bend", in: canvasValue())
         XCTAssertGreaterThanOrEqual(bend, 0)
-        XCTAssertLessThan(bend, 35, "Shaky zigzag still has a \(bend)° kink. Smoothing isn't working while drawing.")
+        XCTAssertLessThan(bend, 35, "Shaky wave still has a \(bend)° kink. Smoothing isn't working while drawing.")
         waitForNumber("ink", "More ink after the scribble") { $0 > ink }
-        shot("03 Shaky zigzag, smoothed")
+        shot("03 Shaky wave, smoothed")
 
         // 5. Undo and redo.
         app.buttons["Undo"].tap()
-        waitForValue(canvas, contains: "strokes 1,", "Undo should remove the zigzag")
+        waitForValue(canvas, contains: "strokes 1,", "Undo should remove the wave")
         app.buttons["Redo"].tap()
         waitForValue(canvas, contains: "strokes 2,", "Redo should bring it back")
+
+        // 5b. The smoothing slider is right on the toolbar, starts light, and Off really draws exactly.
+        let smoothing = waitFor(element("smoothing"), "The smoothing slider should be on the toolbar")
+        waitForValue(smoothing, contains: "25%", "Smoothing should start light")
+        element("smoothingOff").tap()
+        waitForValue(smoothing, contains: "Off", "The scribble button next to the slider should turn smoothing off")
+        shot("03b Smoothing off")
+        element("testScribble").tap()
+        waitForValue(canvas, contains: "strokes 3,", "The test scribble should add a stroke with smoothing off")
+        let offBend = number("bend", in: canvasValue())
+        XCTAssertGreaterThan(offBend, bend, "With smoothing off the shake should stay (\(offBend)° vs \(bend)° smoothed)")
+        app.buttons["Undo"].tap()
+        waitForValue(canvas, contains: "strokes 2,", "Undo the unsmoothed wave")
+        smoothing.adjust(toNormalizedSliderPosition: 0.25)
+        XCTAssertFalse((smoothing.value as? String ?? "Off").contains("Off"), "Dragging the slider should turn smoothing back on")
 
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
         element("tool-select").tap()

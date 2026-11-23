@@ -240,6 +240,7 @@ struct ToolBar: View {
     @ObservedObject var model: EditorModel
     @Binding var showBrush: Bool
     @State private var showColor = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         HStack(spacing: 6) {
@@ -291,6 +292,13 @@ struct ToolBar: View {
                     .frame(minWidth: 320, idealWidth: 340, minHeight: model.tool == .eraser ? 260 : 480, idealHeight: model.tool == .eraser ? 300 : 560)
                     .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
+            }
+            // Smoothing right on the toolbar on iPad, so it's easy to turn down for faces and details.
+            // On a narrow screen it lives in the brush settings instead.
+            if sizeClass != .compact && (model.tool == .brush || model.tool == .eraser) {
+                Divider().frame(height: 28)
+                SmoothingControl(value: $model.smoothing, compact: true)
+                    .frame(width: 190)
             }
         }
         .padding(.horizontal, 10)
@@ -348,10 +356,51 @@ struct BrushPanel: View {
                 }
             }
             Section {
-                LabeledSlider(title: "Smoothing", value: $model.smoothing, range: 0...1, format: "%.2f")
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Smoothing")
+                        Spacer()
+                        Button("Reset") { model.smoothing = StrokeSmoothing.defaultAmount }
+                            .font(.footnote)
+                            .buttonStyle(.borderless)
+                            .disabled(abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
+                            .accessibilityIdentifier("smoothingReset")
+                    }
+                    SmoothingControl(value: $model.smoothing, compact: false)
+                }
             } footer: {
-                Text("Higher smoothing makes shaky lines smooth. 0 draws exactly where you touch.")
+                Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Corners and small strokes like eyes keep their shape either way.")
             }
+        }
+    }
+}
+
+/// The smoothing strength slider: 0 is Off, with the amount shown as a percentage.
+struct SmoothingControl: View {
+    @Binding var value: Double
+    var compact: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { value = 0 } label: {
+                Image(systemName: value < 0.005 ? "scribble" : "scribble.variable")
+                    .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                    .foregroundStyle(value < 0.005 ? Color.secondary : Theme.accent)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Turn smoothing off")
+            .accessibilityIdentifier("smoothingOff")
+            Slider(value: Binding(get: { value }, set: { value = $0 < 0.02 ? 0 : $0 }), in: 0...1)
+                .tint(Theme.accent)
+                .accessibilityLabel("Smoothing strength")
+                .accessibilityValue(StrokeSmoothing.label(value))
+                .accessibilityIdentifier("smoothing")
+            Text(StrokeSmoothing.label(value))
+                .font((compact ? Font.caption : Font.subheadline).monospacedDigit())
+                .foregroundStyle(.secondary)
+                .frame(width: compact ? 36 : 44, alignment: .trailing)
+                .accessibilityHidden(true)
         }
     }
 }
