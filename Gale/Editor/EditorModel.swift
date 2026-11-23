@@ -38,8 +38,8 @@ final class EditorModel: ObservableObject {
     @Published var size: Double = 8 { didSet { saveSettings() } }
     @Published var opacity: Double = 1 { didSet { saveSettings() } }
     @Published var eraserSize: Double = 30 { didSet { saveSettings() } }
-    /// 0 = draw exactly, 1 = smoothest.
-    @Published var smoothing: Double = 0.55 { didSet { saveSettings() } }
+    /// 0 = off (draw exactly), 1 = smoothest. Starts light so faces and small details keep their shape.
+    @Published var smoothing: Double = StrokeSmoothing.defaultAmount { didSet { saveSettings() } }
     /// Let fingers draw even after an Apple Pencil was used (otherwise fingers only move and zoom).
     @Published var fingerDraws: Bool = true { didSet { saveSettings() } }
     @Published var onion = OnionSettings() { didSet { saveSettings() } }
@@ -85,7 +85,12 @@ final class EditorModel: ObservableObject {
         var onion: OnionSettings
         var recentColors: [RGBA]
         var fillGapClose: Double?
+        /// Which smoothing tuning the saved amount was picked for. Missing means the old, much stronger one.
+        var smoothingVersion: Int?
     }
+
+    /// Bump when the smoothing math changes so much that an old saved amount would feel wrong.
+    private static let smoothingVersion = 2
 
     private var loading = false
 
@@ -98,19 +103,21 @@ final class EditorModel: ObservableObject {
         size = s.size
         opacity = s.opacity
         eraserSize = s.eraserSize
-        smoothing = s.smoothing
+        // The old tuning started at a strong 0.55 that rounded off faces. Start everyone on the new light default once.
+        smoothing = (s.smoothingVersion ?? 1) < Self.smoothingVersion ? StrokeSmoothing.defaultAmount : min(1, max(0, s.smoothing))
         fingerDraws = s.fingerDraws
         onion = s.onion
         recentColors = s.recentColors
         fillGapClose = s.fillGapClose ?? 4
         loading = false
+        if (s.smoothingVersion ?? 1) < Self.smoothingVersion { saveSettings() }
     }
 
     private func saveSettings() {
         guard !loading else { return }
         let s = Saved(brushKind: brushKind, color: color, size: size, opacity: opacity, eraserSize: eraserSize,
                       smoothing: smoothing, fingerDraws: fingerDraws, onion: onion, recentColors: recentColors,
-                      fillGapClose: fillGapClose)
+                      fillGapClose: fillGapClose, smoothingVersion: Self.smoothingVersion)
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: "gale.editor.settings") }
     }
 }

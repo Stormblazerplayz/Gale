@@ -7,6 +7,8 @@
   const R = Gale.render;
 
   const SETTINGS_KEY = 'gale.editor.settings';
+  /** Bump when the smoothing math changes so much that an old saved amount would feel wrong. */
+  const SMOOTHING_VERSION = 2;
   const PALETTE = ['#000000FF', '#FFFFFFFF', '#6B7280FF', '#EF4444FF', '#F97316FF', '#FACC15FF', '#22C55EFF', '#14B8A6FF',
     '#22D3EEFF', '#3B82F6FF', '#7C3AEDFF', '#EC4899FF', '#92400EFF', '#FDE68AFF'];
   const TOOLS = [
@@ -61,7 +63,9 @@
       size: num(s.size, 8, 1, 200),
       opacity: num(s.opacity, 1, 0.05, 1),
       eraserSize: num(s.eraserSize, 30, 1, 200),
-      smoothing: num(s.smoothing, 0.55, 0, 1),
+      // The old tuning started at a strong 0.55 that rounded off faces: move everyone to the light default once.
+      smoothing: (s.smoothingVersion || 1) < SMOOTHING_VERSION ? Stabilizer.DEFAULT_AMOUNT : num(s.smoothing, Stabilizer.DEFAULT_AMOUNT, 0, 1),
+      smoothingVersion: SMOOTHING_VERSION,
       onion: Onion.settings(s.onion),
       recent: Array.isArray(s.recent) ? s.recent.filter((c) => Color.parse(c)).slice(0, 12) : [],
     };
@@ -402,14 +406,18 @@
     e.preventDefault();
     viewCanvas().setPointerCapture(e.pointerId);
     const t0 = e.timeStamp;
-    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, 1 / E.view.scale);
+    const scale = 1 / E.view.scale;
+    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, scale);
     const brush = currentBrush(penEraser);
+    const raw = stab.begin(penPoint(e, t0));
     E.drawing = {
       id: e.pointerId,
       t0,
       stab,
       brush,
-      points: stab.begin(penPoint(e, t0)),
+      scale,
+      raw,
+      points: raw.slice(),
       strokeId: Model.makeId(),
       frameId: E.frameId,
       layerId: E.layerId,
@@ -430,8 +438,10 @@
     if (!d || e.pointerId !== d.id) return;
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     for (const ev of events.length ? events : [e]) {
-      for (const q of d.stab.add(penPoint(ev, d.t0))) d.points.push(q);
+      for (const q of d.stab.add(penPoint(ev, d.t0))) d.raw.push(q);
     }
+    // Same finishing step while drawing and when you lift, so the line never jumps.
+    d.points = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
     sendLive(false);
     requestRender();
   }
@@ -445,9 +455,8 @@
       requestRender();
       return;
     }
-    for (const q of d.stab.end()) d.points.push(q);
-    let pts = d.points;
-    if (E.settings.smoothing > 0.01) pts = Stabilizer.smooth(pts, E.settings.smoothing * 0.5);
+    for (const q of d.stab.end()) d.raw.push(q);
+    const pts = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
     const stroke = { id: d.strokeId, key: 'a0', brush: d.brush, pts: Model.packPoints(pts) };
     E.drawing = { ...d, points: pts };
     sendLive(true);
@@ -591,7 +600,7 @@
     $('br-opacity-out').textContent = `${Math.round(s.opacity * 100)}%`;
     $('br-opacity').disabled = E.tool === 'eraser';
     $('br-smooth').value = String(Math.round(s.smoothing * 100));
-    $('br-smooth-out').textContent = `${Math.round(s.smoothing * 100)}%`;
+    $('br-smooth-out').textContent = Stabilizer.label(s.smoothing);
     const sw = $('br-swatches');
     sw.textContent = '';
     for (const c of PALETTE) sw.appendChild(el('button', { class: 'swatch', title: c.slice(0, 7), style: `background:${Color.toCss(c)}`, onclick: () => pickColor(c) }));
@@ -1035,7 +1044,7 @@
     });
     $('br-smooth').addEventListener('input', (e) => {
       E.settings.smoothing = Number(e.target.value) / 100;
-      $('br-smooth-out').textContent = `${e.target.value}%`;
+      $('br-smooth-out').textContent = Stabilizer.label(E.settings.smoothing);
       saveSettings();
     });
 

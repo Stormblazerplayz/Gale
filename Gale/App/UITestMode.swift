@@ -3,7 +3,7 @@ import Foundation
 /// Switches used only when the UI tests run the app (they launch it with -uiTesting).
 enum UITestMode {
     static let on = ProcessInfo.processInfo.arguments.contains("-uiTesting")
-    /// Posted by the hidden test button: the canvas draws a shaky zigzag through the real drawing steps.
+    /// Posted by the hidden test button: the canvas draws a shaky wave through the real drawing steps.
     static let scribble = Notification.Name("gale.uitest.scribble")
 
     /// Starts every test run with no projects and default settings, so results never depend on an old run.
