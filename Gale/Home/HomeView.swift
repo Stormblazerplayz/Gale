@@ -5,6 +5,7 @@ import GaleSync
 struct HomeView: View {
     @EnvironmentObject var library: ProjectLibrary
     @EnvironmentObject var sync: SyncManager
+    @EnvironmentObject var libraryStore: LibraryStore
     @State private var showLearn = false
     @State private var showScan = false
     @State private var showComputer = false
@@ -86,6 +87,9 @@ struct HomeView: View {
                             ToolbarItem(placement: .cancellationAction) { Button("Close") { showLearn = false } }
                         }
                 }
+                .environmentObject(library)
+                .environmentObject(libraryStore)
+                .environmentObject(sync)
             }
             .fullScreenCover(isPresented: $showScan) {
                 NavigationStack {

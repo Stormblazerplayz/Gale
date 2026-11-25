@@ -61,16 +61,32 @@ public struct LearnGuide: Codable, Hashable, Sendable {
     /// Lines shown under every frame (ground, horizon, a still background). Never scored.
     public var background: [LearnPath]
     public var frames: [LearnGuideFrame]
+    /// The point the eye follows (a ball's middle, a nose, a hand), one per frame. Empty = not tracked.
+    /// Watch steps draw its trail and timing chart from these points.
+    public var track: [LearnPoint]
 
     public static let defaultAspect = 4.0 / 3.0
 
     public init(aspect: Double = LearnGuide.defaultAspect, fps: Int = 12, loop: Bool = true,
-                background: [LearnPath] = [], frames: [LearnGuideFrame]) {
+                background: [LearnPath] = [], frames: [LearnGuideFrame], track: [LearnPoint] = []) {
         self.aspect = aspect
         self.fps = fps
         self.loop = loop
         self.background = background
         self.frames = frames
+        self.track = track
+    }
+
+    /// The tracked point on a frame: the guide's own track point, or else the middle of the frame's ink.
+    public func trackPoint(frame i: Int) -> LearnPoint? {
+        guard frames.indices.contains(i) else { return nil }
+        if track.count == frames.count { return track[i] }
+        return LearnGeometry.centroid(frames[i].inkStrokes)
+    }
+
+    /// The first tick of a frame (holds before it added up).
+    public func startTick(ofFrame i: Int) -> Int {
+        frames.prefix(max(0, min(i, frames.count))).reduce(0) { $0 + max(1, $1.hold) }
     }
 
     /// Length of the animation in ticks (holds included).
@@ -103,7 +119,7 @@ public struct LearnGuide: Codable, Hashable, Sendable {
         return frameIndex(atTick: ticks)
     }
 
-    enum CodingKeys: String, CodingKey { case aspect, fps, loop, background, frames }
+    enum CodingKeys: String, CodingKey { case aspect, fps, loop, background, frames, track }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -112,6 +128,12 @@ public struct LearnGuide: Codable, Hashable, Sendable {
         loop = try c.decodeIfPresent(Bool.self, forKey: .loop) ?? true
         background = try c.decodeIfPresent([LearnPath].self, forKey: .background) ?? []
         frames = try c.decode([LearnGuideFrame].self, forKey: .frames)
+        // The track is stored flat (x, y, x, y, ...) like path points.
+        let flat = try c.decodeIfPresent([Double].self, forKey: .track) ?? []
+        guard flat.count % 2 == 0 else {
+            throw DecodingError.dataCorruptedError(forKey: .track, in: c, debugDescription: "track needs x, y pairs")
+        }
+        track = stride(from: 0, to: flat.count, by: 2).map { LearnPoint(flat[$0], flat[$0 + 1]) }
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -121,6 +143,7 @@ public struct LearnGuide: Codable, Hashable, Sendable {
         try c.encode(loop, forKey: .loop)
         if !background.isEmpty { try c.encode(background, forKey: .background) }
         try c.encode(frames, forKey: .frames)
+        if !track.isEmpty { try c.encode(track.flatMap { [$0.x, $0.y] }, forKey: .track) }
     }
 }
 
@@ -295,9 +318,77 @@ public enum LearnStepKind: String, Codable, Hashable, Sendable, CaseIterable {
     case quiz
     /// Try a Gale tool.
     case tool
+    /// Watch and listen: a narrated demo, played beat by beat, with onion skin, motion trails and timing charts.
+    case watch
+    /// Animate it for real: the lesson opens a Gale project with the guide on a locked layer,
+    /// you animate in the real editor, then the lesson checks the frames you drew.
+    case animate
 
     /// Steps that are checked and give stars.
-    public var isScored: Bool { self == .trace || self == .frames || self == .quiz }
+    public var isScored: Bool { self == .trace || self == .frames || self == .quiz || self == .animate }
+
+    /// Steps where the learner draws frames that are checked against the guide's frames.
+    public var drawsFrames: Bool { self == .frames || self == .animate }
+}
+
+// MARK: - Watch beats
+
+/// Extra drawings laid over a watch step's demo.
+public enum LearnOverlay: String, Codable, Hashable, Sendable, CaseIterable {
+    /// Every frame of the beat shows faintly at once (like onion skin), so you see the spacing.
+    case onion
+    /// The path the tracked point travels, with a dot on every frame.
+    case trail
+    /// An animator's timing chart: one tick per frame, spaced like the drawings.
+    case chart
+    /// Plays the beat at half speed.
+    case slow
+
+    /// Unknown overlays from newer lesson files are skipped, not an error.
+    public init(from decoder: Decoder) throws {
+        let s = try decoder.singleValueContainer().decode(String.self)
+        self = LearnOverlay(rawValue: s) ?? .slow
+    }
+}
+
+/// One spoken moment of a watch step: what is said, which frames play while it's said, and what's laid over them.
+public struct LearnBeat: Codable, Hashable, Sendable {
+    /// Spoken out loud and shown as a caption.
+    public var say: String
+    /// First frame that plays (0-based).
+    public var from: Int
+    /// Last frame that plays. Same as `from` to hold one drawing still.
+    public var to: Int
+    public var overlays: [LearnOverlay]
+
+    public init(say: String, from: Int, to: Int, overlays: [LearnOverlay] = []) {
+        self.say = say
+        self.from = from
+        self.to = to
+        self.overlays = overlays
+    }
+
+    public var range: ClosedRange<Int> { min(from, to)...max(from, to) }
+    public var holdsStill: Bool { from == to }
+    public func has(_ o: LearnOverlay) -> Bool { overlays.contains(o) }
+
+    enum CodingKeys: String, CodingKey { case say, from, to, overlays = "show" }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        say = try c.decode(String.self, forKey: .say)
+        from = try c.decodeIfPresent(Int.self, forKey: .from) ?? 0
+        to = try c.decodeIfPresent(Int.self, forKey: .to) ?? from
+        overlays = try c.decodeIfPresent([LearnOverlay].self, forKey: .overlays) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(say, forKey: .say)
+        try c.encode(from, forKey: .from)
+        try c.encode(to, forKey: .to)
+        if !overlays.isEmpty { try c.encode(overlays, forKey: .overlays) }
+    }
 }
 
 public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
@@ -311,9 +402,14 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
     public var checks: [LearnCheck]
     public var quiz: LearnQuiz?
     public var tool: LearnToolTask?
+    /// What the narrator says for this step. Empty = it reads the title and text.
+    public var say: [String]
+    /// Watch steps: the narrated beats, in order.
+    public var beats: [LearnBeat]
 
     public init(id: String, kind: LearnStepKind, title: String, text: String, hint: String? = nil,
-                guide: LearnGuide? = nil, checks: [LearnCheck] = [], quiz: LearnQuiz? = nil, tool: LearnToolTask? = nil) {
+                guide: LearnGuide? = nil, checks: [LearnCheck] = [], quiz: LearnQuiz? = nil, tool: LearnToolTask? = nil,
+                say: [String] = [], beats: [LearnBeat] = []) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -323,12 +419,14 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
         self.checks = checks
         self.quiz = quiz
         self.tool = tool
+        self.say = say
+        self.beats = beats
     }
 
     /// The trace check, if there is one.
     public var traceCheck: LearnCheck? { checks.first { $0.type == .trace } }
 
-    enum CodingKeys: String, CodingKey { case id, kind, title, text, hint, guide, checks, quiz, tool }
+    enum CodingKeys: String, CodingKey { case id, kind, title, text, hint, guide, checks, quiz, tool, say, beats }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -341,6 +439,23 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
         checks = try c.decodeIfPresent([LearnCheck].self, forKey: .checks) ?? []
         quiz = try c.decodeIfPresent(LearnQuiz.self, forKey: .quiz)
         tool = try c.decodeIfPresent(LearnToolTask.self, forKey: .tool)
+        say = try c.decodeIfPresent([String].self, forKey: .say) ?? []
+        beats = try c.decodeIfPresent([LearnBeat].self, forKey: .beats) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(kind, forKey: .kind)
+        try c.encode(title, forKey: .title)
+        try c.encode(text, forKey: .text)
+        try c.encodeIfPresent(hint, forKey: .hint)
+        try c.encodeIfPresent(guide, forKey: .guide)
+        if !checks.isEmpty { try c.encode(checks, forKey: .checks) }
+        try c.encodeIfPresent(quiz, forKey: .quiz)
+        try c.encodeIfPresent(tool, forKey: .tool)
+        if !say.isEmpty { try c.encode(say, forKey: .say) }
+        if !beats.isEmpty { try c.encode(beats, forKey: .beats) }
     }
 }
 

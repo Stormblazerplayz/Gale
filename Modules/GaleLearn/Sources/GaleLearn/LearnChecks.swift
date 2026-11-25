@@ -136,7 +136,7 @@ public enum LearnEvaluator {
     /// Checks an answer against a step.
     public static func evaluate(_ step: LearnStep, answer: LearnAnswer) -> LearnEvaluation {
         switch step.kind {
-        case .read, .tool:
+        case .read, .tool, .watch:
             return LearnEvaluation(passed: true, quality: 1, outcomes: [], message: "Nice!")
         case .quiz:
             return evaluateQuiz(step, answer: answer)
@@ -148,7 +148,7 @@ public enum LearnEvaluator {
             default: strokes = []
             }
             return evaluateTrace(step, strokes: strokes)
-        case .frames:
+        case .frames, .animate:
             var frames: [[[LearnPoint]]] = []
             switch answer {
             case .frames(let f): frames = f
@@ -162,13 +162,13 @@ public enum LearnEvaluator {
     /// The answer a perfect learner would give: the guide's own ink lines (or the right choice).
     public static func perfectAnswer(for step: LearnStep) -> LearnAnswer {
         switch step.kind {
-        case .read, .tool:
+        case .read, .tool, .watch:
             return .done
         case .quiz:
             return .choice(step.quiz?.answer ?? 0)
         case .trace:
             return .strokes(step.guide?.frames.first?.inkStrokes ?? [])
-        case .frames:
+        case .frames, .animate:
             return .frames(step.guide?.frames.map(\.inkStrokes) ?? [])
         }
     }

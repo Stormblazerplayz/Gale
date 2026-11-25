@@ -41,6 +41,9 @@ struct LearnLessonSession: View {
 
     @State private var run: LearnLessonRun
     @StateObject private var book = LearnInkBook()
+    @StateObject private var studio = LearnStudioBook()
+    @StateObject private var narrator = LearnNarrator()
+    @State private var watchRestart = 0
     @State private var feedback: LearnFeedback?
     @State private var quizChoice: Int?
     @State private var wrongChoices: Set<Int> = []
@@ -75,8 +78,14 @@ struct LearnLessonSession: View {
                     withAnimation(.easeOut(duration: 0.2)) { feedback = nil }
                 }
             }
+            if !lesson.steps.isEmpty && result == nil {
+                LearnCaptionBar(narrator: narrator) { sayStepAgain() }
+            }
             actionBar
         }
+        .onAppear { narrateStep() }
+        .onDisappear { narrator.stop() }
+        .onChange(of: run.index) { _, _ in narrateStep() }
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .overlay {
             if let result {
@@ -137,6 +146,10 @@ struct LearnLessonSession: View {
             LearnQuizStepView(step: step, choice: $quizChoice, wrongChoices: wrongChoices, solved: run.record.passed)
         case .tool:
             LearnToolStepView(step: step)
+        case .watch:
+            LearnWatchStepView(step: step, narrator: narrator, restartToken: watchRestart)
+        case .animate:
+            LearnAnimateStepView(lesson: lesson, step: step, store: store, studio: studio, narrator: narrator)
         case .trace:
             VStack(spacing: 12) {
                 LearnStepHeader(step: step, compact: true)
@@ -190,10 +203,11 @@ struct LearnLessonSession: View {
         switch step.kind {
         case .trace: return !book.ink(for: step).isEmpty
         case .frames: return book.ink(for: step).drawnFrameCount > 0
+        case .animate: return studio.drawnCount(for: step) > 0
         case .quiz:
             guard let c = quizChoice else { return false }
             return !wrongChoices.contains(c)
-        case .read, .tool: return true
+        case .read, .tool, .watch: return true
         }
     }
 
@@ -246,8 +260,9 @@ struct LearnLessonSession: View {
         switch step.kind {
         case .trace: answer = .strokes(book.ink(for: step).answerFrames.first ?? [])
         case .frames: answer = .frames(book.ink(for: step).answerFrames)
+        case .animate: answer = .frames(studio.answer(for: step))
         case .quiz: answer = .choice(quizChoice ?? -1)
-        case .read, .tool: answer = .done
+        case .read, .tool, .watch: answer = .done
         }
         let fb = run.submit(answer)
         if step.kind == .quiz, !fb.passed, let c = quizChoice {
@@ -256,6 +271,27 @@ struct LearnLessonSession: View {
         }
         UINotificationFeedbackGenerator().notificationOccurred(fb.passed ? .success : .warning)
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) { feedback = fb }
+        narrator.speak(LearnNarration.lines(for: fb))
+    }
+
+    // MARK: Voice
+
+    /// Reads the step out loud when it opens. Watch steps speak their own beats.
+    private func narrateStep() {
+        guard !lesson.steps.isEmpty, !run.isFinished, result == nil else { return }
+        if run.step.kind == .watch { return }
+        narrator.speak(LearnNarration.lines(for: run.step))
+    }
+
+    private func sayStepAgain() {
+        guard !lesson.steps.isEmpty else { return }
+        if run.step.kind == .watch {
+            watchRestart += 1
+        } else if let fb = feedback {
+            narrator.speak(LearnNarration.lines(for: run.step) + LearnNarration.lines(for: fb))
+        } else {
+            narrator.speak(LearnNarration.lines(for: run.step))
+        }
     }
 
     private func next() {
@@ -294,12 +330,15 @@ struct LearnLessonSession: View {
     }
 
     private func finish() {
+        narrator.stop()
         let stars = run.stars
         let opened = store.finish(lesson, stars: stars)
         let next = store.lesson(after: lesson)
         withAnimation(.easeInOut(duration: 0.25)) {
             result = LearnLessonResult(lesson: lesson, stars: stars, opened: opened, next: next)
         }
+        let cheer = stars == 3 ? "All three stars. Amazing work!" : (stars == 2 ? "Two stars. Really nice!" : "Try again any time for more stars.")
+        narrator.speak(["Lesson done!", cheer])
     }
 }
 

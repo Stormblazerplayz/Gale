@@ -52,7 +52,7 @@ final class LibraryTests: XCTestCase {
         XCTAssertEqual(problems, [], problems.prefix(20).joined(separator: "\n"))
         var drawingSteps = 0
         for lesson in lib.lessons {
-            for step in lesson.steps where step.kind == .trace || step.kind == .frames {
+            for step in lesson.steps where step.kind == .trace || step.kind.drawsFrames {
                 drawingSteps += 1
                 let r = LearnEvaluator.evaluate(step, answer: LearnEvaluator.perfectAnswer(for: step))
                 XCTAssertTrue(r.passed, "\(lesson.id)/\(step.id): \(r.message)")
@@ -66,7 +66,7 @@ final class LibraryTests: XCTestCase {
         let lib = try library()
         var rng = SeededRandom(42)
         for lesson in lib.lessons {
-            for step in lesson.steps where step.kind == .trace || step.kind == .frames {
+            for step in lesson.steps where step.kind == .trace || step.kind.drawsFrames {
                 let aspect = step.guide?.aspect ?? LearnGuide.defaultAspect
                 func scribble() -> [[LearnPoint]] {
                     [(0..<40).map { _ in LearnPoint(rng.range(0.05, aspect - 0.05), rng.range(0.05, 0.95)) }]
@@ -306,23 +306,43 @@ final class ProgressTests: XCTestCase {
         XCTAssertEqual(try LearnProgress.load(from: url), p)
     }
 
-    func testUnlocks() throws {
+    func testEverythingIsOpen() throws {
         let lib = try LearnCourseLibrary.loadBuiltIn()
         var p = LearnProgress()
         let opened = p.refreshUnlocks(library: lib)
-        XCTAssertTrue(opened.contains("basics"))
-        XCTAssertFalse(opened.contains("principles"))
+        // Every course and every lesson is open from day one: no circles before real animation.
+        XCTAssertEqual(Set(opened), Set(lib.courses.map(\.id)))
+        for course in lib.courses {
+            XCTAssertTrue(p.isCourseUnlocked(course, in: lib), course.id)
+            for lesson in course.lessons {
+                XCTAssertTrue(p.isLessonUnlocked(lesson, in: course, library: lib), lesson.id)
+            }
+        }
+        XCTAssertEqual(p.refreshUnlocks(library: lib), [])
+        // "Ready" still tells you which courses build on others, as a tip.
         let basics = try XCTUnwrap(lib.course(id: "basics"))
         let principles = try XCTUnwrap(lib.course(id: "principles"))
-        XCTAssertTrue(p.isLessonUnlocked(basics.lessons[0], in: basics, library: lib))
-        XCTAssertFalse(p.isLessonUnlocked(basics.lessons[1], in: basics, library: lib))
-        XCTAssertFalse(p.isCourseUnlocked(principles, in: lib))
+        XCTAssertTrue(p.isCourseReady(basics, in: lib))
+        XCTAssertFalse(p.isCourseReady(principles, in: lib))
         for l in basics.lessons { p.recordLesson(l.id, stars: 3) }
-        XCTAssertTrue(p.isLessonUnlocked(basics.lessons[1], in: basics, library: lib))
-        XCTAssertTrue(p.isCourseUnlocked(principles, in: lib))
-        let more = p.refreshUnlocks(library: lib)
-        XCTAssertTrue(more.contains("principles"))
-        XCTAssertTrue(more.contains("ball"))
-        XCTAssertEqual(p.refreshUnlocks(library: lib), [])
+        XCTAssertTrue(p.isCourseReady(principles, in: lib))
+        // The real animation course comes first and needs nothing.
+        let pro = try XCTUnwrap(lib.course(id: "pro"))
+        XCTAssertEqual(lib.tracks.first?.courses.first?.id, "pro")
+        XCTAssertEqual(pro.requires, [])
+    }
+
+    func testStudioProjectsAreRemembered() throws {
+        var p = LearnProgress()
+        XCTAssertNil(p.studioProject(lesson: "pro.walk", step: "s3"))
+        p.setStudioProject("abc", lesson: "pro.walk", step: "s3")
+        XCTAssertEqual(p.studioProject(lesson: "pro.walk", step: "s3"), "abc")
+        let data = try JSONEncoder().encode(p)
+        XCTAssertEqual(try JSONDecoder().decode(LearnProgress.self, from: data), p)
+        p.setStudioProject(nil, lesson: "pro.walk", step: "s3")
+        XCTAssertNil(p.studioProject(lesson: "pro.walk", step: "s3"))
+        // Old progress files without the field still load.
+        let old = #"{"version":1,"lessons":{},"activeDays":[],"unlockedCourses":[]}"#
+        XCTAssertEqual(try JSONDecoder().decode(LearnProgress.self, from: Data(old.utf8)).studioProjects, [:])
     }
 }
