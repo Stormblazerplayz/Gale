@@ -48,7 +48,7 @@ final class EditorModel: ObservableObject {
     @Published var lastRawLine: [StrokePoint] = []
     /// Set by the brush settings' "Test my hand" button: closes brush settings, then opens the stabilizer test.
     @Published var stabilizerTestRequested = false
-    /// The stabilizer test is showing (a big sheet over the editor, so there's room to trace).
+    /// The stabilizer test is showing (full screen, so there's room to trace).
     @Published var showStabilizerTest = false
     /// Let fingers draw even after an Apple Pencil was used (otherwise fingers only move and zoom).
     @Published var fingerDraws: Bool = true { didSet { saveSettings() } }

@@ -120,9 +120,9 @@ struct EditorView: View {
         .sheet(isPresented: $showExport) {
             ExportSheet(document: document)
         }
-        .sheet(isPresented: $model.showStabilizerTest) {
+        .fullScreenCover(isPresented: $model.showStabilizerTest) {
+            // Full screen, not a sheet: a sheet's swipe-to-close would steal your tracing strokes.
             StabilizerCalibrationView(model: model)
-                .presentationDetents([.large])
         }
         .onChange(of: model.stabilizerTestRequested) { _, asked in
             // Close brush settings first, then open the test once the popup has gone.
