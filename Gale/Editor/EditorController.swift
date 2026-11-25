@@ -22,6 +22,7 @@ final class EditorController: ObservableObject {
     var actions: CanvasActions {
         CanvasActions(
             commitStroke: { [weak self] s in self?.commit(s) },
+            rawLine: { [weak self] pts in self?.model.lastRawLine = pts },
             fill: { [weak self] p in self?.fill(at: p) },
             select: { [weak self] ids in self?.model.selection = ids },
             moveSelection: { [weak self] d in self?.moveSelection(by: d) },
