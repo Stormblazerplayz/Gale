@@ -347,7 +347,6 @@ private struct GuidePad: View {
                     }
                 }
                 TracePad(clearToken: clearToken, onLine: onLine)
-                    .accessibilityIdentifier("calibrationPad")
             }
             .frame(width: width, height: height)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -433,6 +432,7 @@ final class TracePadView: UIView {
         ink.lineJoin = .round
         layer.addSublayer(ink)
         isAccessibilityElement = true
+        accessibilityIdentifier = "calibrationPad"
         accessibilityLabel = "Tracing area"
         accessibilityTraits = .allowsDirectInteraction
     }
