@@ -7,6 +7,7 @@
 
 const OrderKey = require('./orderKey');
 const Color = require('./color');
+const Pixel = require('./pixel');
 
 const FORMAT = 'gale/1';
 const PT_STRIDE = 6;
@@ -264,6 +265,7 @@ function normalize(p) {
   if (p.frames.length === 0) p.frames = [newFrame()];
   p.fps = Math.min(60, Math.max(1, p.fps));
   p.movie.tracks.sort(OrderKey.compare);
+  if (p.pixel) Pixel.normalize(p.pixel);
   return p;
 }
 
@@ -288,6 +290,8 @@ function readProject(json) {
     movie: readMovie(c.movie),
     media: objList(c.media, readMedia),
   };
+  // Pixel storytime projects carry their story here (left out for normal drawings).
+  if (isObj(c.pixel)) p.pixel = Pixel.readStory(c.pixel);
   return normalize(p);
 }
 
@@ -309,6 +313,15 @@ function newProject({ name = 'Untitled', width = 1920, height = 1080, fps = 12, 
     movie: { overlay: false, tracks: [], clips: [] },
     media: [],
   };
+}
+
+/** A brand-new pixel storytime project (its canvas is the grid scaled up, like on the iPad). */
+function newPixelProject({ name = 'Pixel Story', width = 32, height = 32, paletteName = 'PICO-8', id } = {}) {
+  const story = Pixel.newStory({ width, height, paletteName });
+  const p = newProject({ name, id, fps: story.scenes[0].fps });
+  p.canvas = Pixel.pixelCanvas(story);
+  p.pixel = story;
+  return p;
 }
 
 /** Drops cels with nothing in them (a missing cel is the same as an empty one). Returns a new project. */
@@ -336,6 +349,8 @@ function toJSON(p) {
     }
     return { ...f, cels };
   });
+  if (p.pixel) out.pixel = Pixel.storyToJSON(p.pixel);
+  else delete out.pixel;
   return out;
 }
 
@@ -393,6 +408,7 @@ function withFreshIds(p, name) {
     hair: p.hair.map((h) => ({ ...h, id: makeId(), layer: layerMap[h.layer] || h.layer })),
     movie: { ...p.movie, tracks, clips },
     media,
+    ...(p.pixel ? { pixel: Pixel.withFreshIds(p.pixel) } : {}),
   };
 }
 
@@ -416,6 +432,7 @@ module.exports = {
   readMotionBlur,
   normalize,
   newProject,
+  newPixelProject,
   newLayer,
   newFrame,
   compact,

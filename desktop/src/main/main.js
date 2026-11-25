@@ -149,7 +149,8 @@ function setupIpc() {
   ipcMain.handle('devices:remove', (_e, id) => hub.removeDevice(String(id)));
 
   ipcMain.handle('file:save', async (_e, { name, data, kind }) => {
-    const filters = kind === 'gif' ? [{ name: 'GIF picture', extensions: ['gif'] }] : [{ name: 'File', extensions: ['*'] }];
+    const kinds = { gif: [{ name: 'GIF picture', extensions: ['gif'] }], png: [{ name: 'PNG picture', extensions: ['png'] }] };
+    const filters = kinds[kind] || [{ name: 'File', extensions: ['*'] }];
     const r = await dialog.showSaveDialog(win, { defaultPath: path.join(app.getPath('pictures'), String(name || 'Gale')), filters });
     if (r.canceled || !r.filePath) return null;
     fs.writeFileSync(r.filePath, Buffer.from(data));
@@ -166,7 +167,7 @@ function setupIpc() {
   ipcMain.handle('file:writeInFolder', (_e, { id, name, data }) => {
     const folder = pickedFolders[id];
     if (!folder) throw new Error('Pick a folder first');
-    if (typeof name !== 'string' || !/^[\p{L}\p{N} _.-]{1,120}\.png$/u.test(name) || name.includes('..')) throw new Error('Bad file name');
+    if (typeof name !== 'string' || !/^[\p{L}\p{N} _.-]{1,120}\.(png|json)$/u.test(name) || name.includes('..')) throw new Error('Bad file name');
     fs.writeFileSync(path.join(folder, name), Buffer.from(data));
     return true;
   });

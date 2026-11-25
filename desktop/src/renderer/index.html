@@ -16,6 +16,7 @@
       <div class="brand"><img src="icon.png" alt="" class="logo"><span>Gale</span></div>
       <div class="home-actions">
         <button id="home-new" class="btn primary">+ New drawing</button>
+        <button id="home-new-pixel" class="btn px-new-btn">+ Pixel story</button>
         <button id="home-import" class="btn">Open a .gale project</button>
         <button id="home-files" class="btn">Show my files</button>
         <button id="home-pair" class="btn">Pair a device</button>
@@ -110,6 +111,80 @@
     </footer>
   </section>
 
+  <!-- Pixel Storytime -->
+  <section id="pixel" class="screen px-screen" hidden>
+    <header class="ed-top">
+      <button id="px-back" class="btn ghost" title="Back to your drawings">← Drawings</button>
+      <button id="px-name" class="ed-name" title="Rename"></button>
+      <span id="px-size" class="px-badge" title="Grid size"></span>
+      <div class="ed-top-mid">
+        <button id="px-undo" class="btn icon" title="Undo (Ctrl+Z)">↶</button>
+        <button id="px-redo" class="btn icon" title="Redo (Ctrl+Y)">↷</button>
+        <span class="sep"></span>
+        <button id="px-play" class="btn" title="Play this scene (Enter)">▶ Play scene</button>
+        <button id="px-onion" class="btn" title="Onion skin (O)">Onion skin</button>
+        <button id="px-onion-set" class="btn icon" title="Onion skin settings">⚙</button>
+        <button id="px-grid" class="btn" title="Show grid lines">Grid</button>
+        <span class="sep"></span>
+        <button id="px-board-btn" class="btn" title="Storyboard: scenes, captions, speech bubbles (S)">🎬 Storyboard</button>
+        <button id="px-story" class="btn primary" title="Play the whole story (P)">▶ Play story</button>
+        <span class="sep"></span>
+        <button id="px-fit" class="btn icon" title="Fit to window (0)">⤢</button>
+        <span id="px-zoom" class="zoom-label">1×</span>
+      </div>
+      <div class="ed-top-right">
+        <span id="px-people" class="people"></span>
+        <span id="px-conn" class="conn"></span>
+        <button id="px-settings" class="btn" title="Grid size, palette and paper">Grid &amp; colors</button>
+        <button id="px-export" class="btn">Export</button>
+      </div>
+    </header>
+
+    <div class="ed-body">
+      <nav id="px-tools" class="tools px-tools"></nav>
+      <div id="px-stage" class="stage px-stage">
+        <canvas id="px-view"></canvas>
+        <div id="px-msg" class="stage-msg" hidden></div>
+        <div id="px-cursor" class="px-cursor"></div>
+      </div>
+      <aside class="side">
+        <div class="panel">
+          <h3>Colors · <span id="px-palette-name"></span></h3>
+          <div class="px-current-row"><span id="px-current" class="px-current" title="Drawing color"></span><span class="px-hint">Right-click erases · Alt-click picks a color</span></div>
+          <div id="px-palette" class="px-palette"></div>
+          <input id="px-color-input" type="color" class="px-hidden-input" tabindex="-1" aria-hidden="true">
+        </div>
+        <div class="panel layers-panel">
+          <h3>Scenes</h3>
+          <div id="px-scenes" class="px-scenes"></div>
+          <div class="row-buttons">
+            <button id="px-scene-add" class="btn small" title="New scene after this one">+ Scene</button>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="timeline">
+      <div class="tl-controls">
+        <button id="px-fr-add" class="btn small" title="New empty frame (N)">+ Frame</button>
+        <button id="px-fr-dup" class="btn small" title="Copy this frame (D)">Copy</button>
+        <button id="px-fr-del" class="btn small danger" title="Delete this frame">Delete</button>
+        <button id="px-fr-left" class="btn small icon" title="Move frame left">◀</button>
+        <button id="px-fr-right" class="btn small icon" title="Move frame right">▶</button>
+        <span class="sep"></span>
+        <span class="hold">Hold
+          <button id="px-hold-dn" class="btn small icon" title="Shorter">−</button>
+          <output id="px-hold"></output>
+          <button id="px-hold-up" class="btn small icon" title="Longer">+</button>
+        </span>
+        <span class="sep"></span>
+        <label class="fps">Speed <input id="px-fps" type="number" min="1" max="30" step="1"> frames a second</label>
+        <span id="px-pos" class="fr-pos"></span>
+      </div>
+      <div id="px-frames" class="frames"></div>
+    </footer>
+  </section>
+
   <!-- Pairing -->
   <section id="pair" class="screen" hidden>
     <header class="home-top">
@@ -148,6 +223,7 @@
   <script src="js/exporter.js"></script>
   <script src="js/stabilizer.js"></script>
   <script src="js/editor.js"></script>
+  <script src="js/pixelEditor.js"></script>
   <script src="js/home.js"></script>
   <script src="js/pair.js"></script>
   <script src="js/app.js"></script>

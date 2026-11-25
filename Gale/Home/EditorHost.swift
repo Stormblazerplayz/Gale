@@ -12,7 +12,11 @@ struct EditorHost: View {
     var body: some View {
         Group {
             if let document {
-                EditorView(document: document, store: store)
+                if document.project.pixel != nil {
+                    PixelEditorView(document: document)
+                } else {
+                    EditorView(document: document, store: store)
+                }
             } else if let error {
                 ContentUnavailableView("Couldn't open this project", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {

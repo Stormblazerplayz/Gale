@@ -19,7 +19,8 @@ test('project -> objects -> project gives the same project', () => {
 test('every object has the spec fields', () => {
   const objs = Objects.toObjects(buildProject());
   for (const o of Object.values(objs)) {
-    const want = ['$type', ...Objects.FIELDS[o.$type]].sort();
+    // `pixel` is only on pixel storytime projects.
+    const want = ['$type', ...Objects.FIELDS[o.$type]].filter((k) => k !== 'pixel' || 'pixel' in o).sort();
     assert.deepEqual(Object.keys(o).sort(), want, o.$type);
   }
 });

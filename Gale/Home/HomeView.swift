@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var downloading: String?
     @State private var path: [URL] = []
     @State private var showNew = false
+    @State private var showPixel = false
     @State private var renaming: ProjectLibrary.Entry?
     @State private var newName = ""
 
@@ -30,6 +31,10 @@ struct HomeView: View {
                                 .buttonStyle(HomeCardButtonStyle())
                                 .accessibilityLabel("New project")
                                 .accessibilityIdentifier("newProject")
+                            Button { showPixel = true } label: { PixelHomeCard() }
+                                .buttonStyle(HomeCardButtonStyle())
+                                .accessibilityLabel("New pixel story")
+                                .accessibilityIdentifier("newPixelStory")
                             ForEach(library.entries) { entry in
                                 Button { path.append(entry.url) } label: { ProjectCard(entry: entry) }
                                     .buttonStyle(HomeCardButtonStyle())
@@ -108,6 +113,13 @@ struct HomeView: View {
             }
             .navigationDestination(for: URL.self) { url in
                 EditorHost(url: url)
+            }
+            .fullScreenCover(isPresented: $showPixel) {
+                PixelEntryView { url in
+                    showPixel = false
+                    path.append(url)
+                }
+                .environmentObject(library)
             }
             .sheet(isPresented: $showNew) {
                 NewProjectSheet { url in
@@ -313,6 +325,15 @@ private struct NewCard: View {
     }
 }
 
+private struct PixelHomeCard: View {
+    var body: some View {
+        HomeCardFrame(title: "Pixel Storytime", caption: Text("Pixel art stories")) {
+            PixelStoryArt()
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Retro.purple, lineWidth: 3))
+        }
+    }
+}
+
 private struct ProjectCard: View {
     let entry: ProjectLibrary.Entry
 
@@ -323,12 +344,21 @@ private struct ProjectCard: View {
                 if let image = UIImage(contentsOfFile: entry.coverURL.path) {
                     Image(uiImage: image)
                         .resizable()
+                        .interpolation(entry.isPixel ? .none : .high)
                         .scaledToFit()
                         .padding(4)
                 } else {
                     Image(systemName: "scribble.variable")
                         .font(.largeTitle)
                         .foregroundStyle(.secondary)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if entry.isPixel {
+                    PixelLabel(text: "PIXEL", color: .white, dot: 1.5)
+                        .padding(5)
+                        .background(Retro.purple, in: Rectangle())
+                        .padding(8)
                 }
             }
         }

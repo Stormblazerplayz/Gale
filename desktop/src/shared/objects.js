@@ -4,9 +4,10 @@
 // objects = { [objectId]: { $type, ...fields } }. Deleting sets `$del: true`.
 
 const Model = require('./model');
+const Pixel = require('./pixel');
 
 const FIELDS = {
-  project: ['name', 'width', 'height', 'background', 'fps', 'motionBlur', 'overlay', 'created'],
+  project: ['name', 'width', 'height', 'background', 'fps', 'motionBlur', 'overlay', 'created', 'pixel'],
   layer: ['key', 'name', 'visible', 'locked', 'opacity'],
   frame: ['key', 'hold'],
   stroke: ['frame', 'layer', 'key', 'brush', 'pts'],
@@ -15,7 +16,22 @@ const FIELDS = {
   track: ['key', 'kind', 'name', 'muted', 'volume'],
   clip: ['track', 'media', 'start', 'in', 'duration', 'speed', 'volume', 'fadeIn', 'fadeOut'],
   media: ['file', 'kind', 'name', 'duration', 'sha256'],
+  // Pixel storytime: settings ride on the project's `pixel` field; each scene and frame is its own object,
+  // so drawing on one frame only sends that frame.
+  pxscene: ['key', 'name', 'fps', 'loops', 'background', 'caption', 'bubbles', 'transition'],
+  pxframe: ['scene', 'key', 'hold', 'runs'],
 };
+
+/** Packed runs for a frame's cells. Cells are never changed in place, so the packing is kept per array. */
+const runsCache = new WeakMap();
+function runsFor(cells) {
+  let r = runsCache.get(cells);
+  if (!r) {
+    r = Pixel.encodeRuns(cells);
+    runsCache.set(cells, r);
+  }
+  return r;
+}
 
 function deepEqual(a, b) {
   if (a === b) return true;
@@ -72,6 +88,14 @@ function toObjects(project) {
   for (const t of p.movie.tracks) out[t.id] = pick('track', t);
   for (const c of p.movie.clips) out[c.id] = pick('clip', c);
   for (const m of p.media) out[m.id] = pick('media', m);
+  if (p.pixel) {
+    const st = p.pixel;
+    out[p.id].pixel = { width: st.width, height: st.height, palette: st.palette, paletteName: st.paletteName, paper: st.paper };
+    for (const sc of st.scenes) {
+      out[sc.id] = pick('pxscene', sc);
+      for (const f of sc.frames) out[f.id] = { $type: 'pxframe', scene: sc.id, key: f.key, hold: f.hold, runs: runsFor(f.cells) };
+    }
+  }
   return out;
 }
 
@@ -125,6 +149,8 @@ function fromObjects(objects, projectId, opts = {}) {
   const media = [];
   const strokes = [];
   const fills = [];
+  const pxScenes = {};
+  const pxFrames = [];
   for (const id of Object.keys(objects)) {
     const o = objects[id];
     if (!alive(o)) continue;
@@ -142,6 +168,8 @@ function fromObjects(objects, projectId, opts = {}) {
       case 'track': tracks.push({ ...o, id }); break;
       case 'clip': clips.push({ ...o, id }); break;
       case 'media': media.push({ ...o, id }); break;
+      case 'pxscene': pxScenes[id] = { ...o, id, frames: [] }; break;
+      case 'pxframe': pxFrames.push({ ...o, id }); break;
       default: break;
     }
   }
@@ -171,6 +199,14 @@ function fromObjects(objects, projectId, opts = {}) {
     delete x.$del;
     return x;
   };
+  let pixel;
+  if (proj.pixel !== null && typeof proj.pixel === 'object' && !Array.isArray(proj.pixel)) {
+    for (const f of pxFrames) {
+      const sc = typeof f.scene === 'string' ? pxScenes[f.scene] : null;
+      if (sc) sc.frames.push(strip({ id: f.id, key: f.key, hold: f.hold, runs: f.runs }));
+    }
+    pixel = { ...proj.pixel, scenes: Object.values(pxScenes).map(strip) };
+  }
   const json = {
     format: Model.FORMAT,
     id: projectId,
@@ -185,8 +221,16 @@ function fromObjects(objects, projectId, opts = {}) {
     hair: hair.map(strip).sort(byId),
     movie: { overlay: proj.overlay, tracks: tracks.map(strip), clips: clips.map(strip).sort(byId) },
     media: media.map(strip).sort(byId),
+    pixel,
   };
   const p = Model.readProject(json);
+  if (p.pixel) {
+    // Stand-ins for a story whose scenes or frames haven't arrived yet, so building twice gives the same ids.
+    if (Object.keys(pxScenes).length === 0) p.pixel.scenes[0].id = `${projectId}-pxscene`;
+    for (const sc of p.pixel.scenes) {
+      if (!pxScenes[sc.id] || pxScenes[sc.id].frames.length === 0) sc.frames[0].id = `${sc.id}-pxframe`;
+    }
+  }
   // A project with no layers or frames yet gets stable stand-ins, so building twice gives the same ids.
   if (layers.length === 0) p.layers[0].id = `${projectId}-layer`;
   if (frameList.length === 0) p.frames[0].id = `${projectId}-frame`;

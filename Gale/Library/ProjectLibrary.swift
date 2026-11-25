@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import GaleFormat
+import GalePixel
 
 /// The list of projects saved on this device (Documents/Projects/*.gale).
 @MainActor
@@ -12,6 +13,8 @@ final class ProjectLibrary: ObservableObject {
         var modified: Date
         var width: Double
         var height: Double
+        /// A pixel storytime project.
+        var isPixel = false
         var coverURL: URL { url.appendingPathComponent(GaleIO.coverFile) }
     }
 
@@ -21,6 +24,12 @@ final class ProjectLibrary: ObservableObject {
         var name: String?
         var modified: Date?
         var canvas: GaleCanvas?
+        var pixel: Present?
+    }
+
+    /// Decodes to "something is there" without reading it (the pixel story can be big).
+    private struct Present: Decodable {
+        init(from decoder: Decoder) throws {}
     }
 
     @Published private(set) var entries: [Entry] = []
@@ -45,7 +54,8 @@ final class ProjectLibrary: ObservableObject {
                               name: header.name ?? url.deletingPathExtension().lastPathComponent,
                               modified: header.modified ?? Date.distantPast,
                               width: header.canvas?.width ?? 1920,
-                              height: header.canvas?.height ?? 1080))
+                              height: header.canvas?.height ?? 1080,
+                              isPixel: header.pixel != nil))
         }
         entries = list.sorted { $0.modified > $1.modified }
     }
@@ -71,6 +81,19 @@ final class ProjectLibrary: ObservableObject {
         let project = GaleProject(name: name, canvas: canvas, fps: fps)
         let url = freshFolder(for: name)
         try GaleIO.writeProject(project, to: url)
+        reload()
+        return url
+    }
+
+    /// Makes a new pixel storytime project and saves it with its cover.
+    @discardableResult
+    func createPixelStory(name: String, story: PixelStory) throws -> URL {
+        let project = GaleProject(name: name, pixel: story)
+        let url = freshFolder(for: name)
+        try GaleIO.writeProject(project, to: url)
+        if let png = story.coverImage().pngData() {
+            try? png.write(to: url.appendingPathComponent(GaleIO.coverFile), options: .atomic)
+        }
         reload()
         return url
     }
