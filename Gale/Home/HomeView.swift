@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var downloading: String?
     @State private var path: [URL] = []
     @State private var showNew = false
+    @State private var showPixel = false
     @State private var renaming: ProjectLibrary.Entry?
     @State private var newName = ""
 
@@ -25,6 +26,10 @@ struct HomeView: View {
                         .buttonStyle(.plain)
                         .accessibilityLabel("New project")
                         .accessibilityIdentifier("newProject")
+                    Button { showPixel = true } label: { PixelStoryCard() }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("New pixel story")
+                        .accessibilityIdentifier("newPixelStory")
                     ForEach(library.entries) { entry in
                         Button { path.append(entry.url) } label: { ProjectCard(entry: entry) }
                             .buttonStyle(.plain)
@@ -109,6 +114,13 @@ struct HomeView: View {
             .navigationDestination(for: URL.self) { url in
                 EditorHost(url: url)
             }
+            .fullScreenCover(isPresented: $showPixel) {
+                PixelEntryView { url in
+                    showPixel = false
+                    path.append(url)
+                }
+                .environmentObject(library)
+            }
             .sheet(isPresented: $showNew) {
                 NewProjectSheet { url in
                     showNew = false
@@ -158,6 +170,7 @@ private struct ProjectCard: View {
                 if let image = UIImage(contentsOfFile: entry.coverURL.path) {
                     Image(uiImage: image)
                         .resizable()
+                        .interpolation(entry.isPixel ? .none : .high)
                         .scaledToFit()
                         .clipShape(RoundedRectangle(cornerRadius: 10))
                         .padding(6)
@@ -168,6 +181,14 @@ private struct ProjectCard: View {
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 110, maxHeight: 110)
+            .overlay(alignment: .topTrailing) {
+                if entry.isPixel {
+                    PixelLabel(text: "PIXEL", color: .white, dot: 1.5)
+                        .padding(5)
+                        .background(Retro.purple, in: Rectangle())
+                        .padding(8)
+                }
+            }
             Text(entry.name).font(.headline).lineLimit(1)
             Text(entry.modified, style: .relative).font(.caption).foregroundStyle(.secondary)
         }
