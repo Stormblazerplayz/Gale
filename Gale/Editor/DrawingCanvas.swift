@@ -13,6 +13,8 @@ struct CanvasState: Equatable {
     var tool: EditorTool
     var brush: Brush
     var smoothing: Double
+    /// "Keep corners sharp": snap to corners while drawing and smooth less at bends.
+    var sharpCorners: Bool
     var fingerDraws: Bool
     var selection: Set<String>
     var hairSide: HairSway.AttachSide
@@ -23,6 +25,8 @@ struct CanvasState: Equatable {
 @MainActor
 struct CanvasActions {
     var commitStroke: (Stroke) -> Void
+    /// The raw touches of a finished line, in screen points (for the stabilizer's before and after preview).
+    var rawLine: ([StrokePoint]) -> Void
     var fill: (Vec2) -> Void
     var select: (Set<String>) -> Void
     var moveSelection: (Vec2) -> Void
@@ -316,6 +320,8 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
     private var activeTouch: UITouch?
     private var stabilizer: StrokeStabilizer?
     private var livePoints: [StrokePoint] = []
+    /// The touches of the line being drawn, before any smoothing.
+    private var rawPoints: [StrokePoint] = []
     private var strokeStart: TimeInterval = 0
     private var lassoPoints: [CGPoint] = []
     private var moveStart: CGPoint?
@@ -796,6 +802,7 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
         activeTouch = nil
         stabilizer = nil
         livePoints = []
+        rawPoints = []
         liveLayer.path = nil
         lassoPoints = []
         if moveStart != nil {
@@ -816,26 +823,42 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
     private func beginLine(_ p: StrokePoint) -> Bool {
         guard let s = state else { return false }
         lineScale = 1 / Double(max(0.05, zoom))
-        let st = StrokeStabilizer(amount: s.smoothing, scale: lineScale)
+        let st = StrokeStabilizer(amount: s.smoothing, scale: lineScale, adaptive: s.sharpCorners)
         stabilizer = st
         livePoints = st.begin(p)
+        rawPoints = [p]
         updateLivePath(predicted: [])
         return true
     }
 
     private func continueLine(_ samples: [StrokePoint], predicted: [StrokePoint] = []) {
         guard let st = stabilizer else { return }
-        for p in samples { livePoints += st.add(p) }
+        for p in samples { st.add(p) }
+        rawPoints += samples
+        // A snap to a corner can redraw the end of the line, so always take the whole line.
+        livePoints = st.points
         updateLivePath(predicted: predicted)
     }
 
     private func finishLine(_ last: StrokePoint) {
         guard let s = state, let st = stabilizer else { return }
-        livePoints += st.add(last)
-        livePoints += st.end()
+        st.add(last)
+        st.end()
+        livePoints = st.points
+        rawPoints.append(last)
         stabilizer = nil
         let pts = rounded(StrokeShape.dedupe(livePoints), smoothing: s.smoothing)
         livePoints = []
+        if s.brush.kind != .eraser, rawPoints.count >= 8 {
+            let k = 1 / lineScale
+            actions?.rawLine(rawPoints.map { p in
+                var q = p
+                q.x *= k
+                q.y *= k
+                return q
+            })
+        }
+        rawPoints = []
         guard !pts.isEmpty else { liveLayer.path = nil; return }
         let stroke = Stroke(brush: s.brush, points: pts).rounded
         lastBend = StrokeShape.sharpestBend(stroke.points, spacing: 4 * lineScale)
@@ -846,7 +869,7 @@ final class CanvasContentView: UIView, UIPencilInteractionDelegate, UIDropIntera
     /// Evens out wobbles the same way while drawing and when you lift, so the line never jumps.
     /// Corners and short strokes (eyes, mouths) keep the shape you drew.
     private func rounded(_ pts: [StrokePoint], smoothing: Double) -> [StrokePoint] {
-        StrokeSmoothing.shape(pts, amount: smoothing, scale: lineScale)
+        StrokeSmoothing.shape(pts, amount: smoothing, scale: lineScale, adaptive: state?.sharpCorners ?? true)
     }
 
     private func updateLivePath(predicted: [StrokePoint]) {

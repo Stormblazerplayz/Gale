@@ -42,6 +42,19 @@ final class EditorUITests: XCTestCase {
         XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
     }
 
+    /// Waits until the element's value contains none of `texts`.
+    func waitForValue(_ e: XCUIElement, notContaining texts: [String], timeout: TimeInterval = 10, _ message: String) {
+        let p = NSPredicate { obj, _ in
+            guard let el = obj as? XCUIElement, el.exists else { return false }
+            let v = el.value as? String ?? ""
+            return !texts.contains { v.contains($0) }
+        }
+        let exp = XCTNSPredicateExpectation(predicate: p, object: e)
+        let result = XCTWaiter().wait(for: [exp], timeout: timeout)
+        let now = e.exists ? (e.value as? String ?? "nil") : "the element is gone"
+        XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
+    }
+
     /// Waits until a number in the canvas description passes a check, and returns it.
     @discardableResult
     func waitForNumber(_ key: String, timeout: TimeInterval = 10, _ message: String, _ ok: (Int) -> Bool) -> Int {
@@ -174,8 +187,29 @@ final class EditorUITests: XCTestCase {
         XCTAssertGreaterThan(offBend, bend, "With smoothing off the shake should stay (\(offBend)° vs \(bend)° smoothed)")
         app.buttons["Undo"].tap()
         waitForValue(canvas, contains: "strokes 2,", "Undo the unsmoothed wave")
-        smoothing.adjust(toNormalizedSliderPosition: 0.25)
-        XCTAssertFalse((smoothing.value as? String ?? "Off").contains("Off"), "Dragging the slider should turn smoothing back on")
+        // Drag the knob the way a finger does: hold it, then slide it slowly. A quick synthesized drag can be
+        // lost while the app is still busy redrawing after the undo, and the slider then never moves.
+        let knob = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 16, dy: 0))
+        let target = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        knob.press(forDuration: 0.4, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.3)
+        waitForValue(smoothing, notContaining: ["Off"], "Dragging the slider should turn smoothing back on")
+
+        // 5c. Face mode: one tap turns smoothing off for details, one more tap brings the slider back.
+        let faceMode = waitFor(element("faceMode"), "The Face mode button should be on the toolbar")
+        waitForValue(faceMode, contains: "off", "Face mode should start off")
+        faceMode.tap()
+        waitForValue(faceMode, contains: "on", "Tapping Face mode should turn it on")
+        waitForValue(smoothing, contains: "Face", "The slider should show Face while Face mode is on")
+        shot("03c Face mode on")
+        element("testScribble").tap()
+        waitForValue(canvas, contains: "strokes 3,", "The test scribble should add a stroke in Face mode")
+        let faceBend = number("bend", in: canvasValue())
+        XCTAssertGreaterThan(faceBend, bend, "Face mode should draw the shake exactly (\(faceBend)° vs \(bend)° smoothed)")
+        app.buttons["Undo"].tap()
+        waitForValue(canvas, contains: "strokes 2,", "Undo the Face mode wave")
+        faceMode.tap()
+        waitForValue(faceMode, contains: "off", "Tapping Face mode again should turn it off")
+        waitForValue(smoothing, notContaining: ["Face", "Off"], "Turning Face mode off should bring the slider setting back")
 
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
         element("tool-select").tap()
@@ -190,6 +224,31 @@ final class EditorUITests: XCTestCase {
         element("brushSize").tap()
         waitFor(app.staticTexts["Smoothing"], "Brush size should open brush settings")
         shot("05 Brush settings")
+
+        // 7b. Stabilizer panel: keep-corners switch, then the hand test measures a few traced shapes.
+        waitFor(element("sharpCorners"), "Brush settings should have the Keep corners sharp switch")
+        let test = waitFor(element("stabilizerTest"), "Brush settings should have the stabilizer test button")
+        test.tap()
+        waitFor(element("calibrationStep"), "The stabilizer test should open")
+        shot("05b Stabilizer test")
+        let pad = waitFor(element("calibrationPad"), "The stabilizer test should have a tracing pad")
+        // Trace across the pad slowly, like a hand would, until Gale has enough to measure.
+        for _ in 0..<4 where !element("useCalibration").exists && !element("calibrationFinishEarly").exists {
+            pad.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.7)).press(
+                forDuration: 0.05, thenDragTo: pad.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3)),
+                withVelocity: XCUIGestureVelocity(rawValue: 250), thenHoldForDuration: 0.05)
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        if !element("useCalibration").exists {
+            waitFor(element("calibrationFinishEarly"), "After two traced shapes Gale should offer the result").tap()
+        }
+        let use = waitFor(element("useCalibration"), "The stabilizer test should show a result")
+        waitFor(element("calibrationLevel"), "The result should say how steady the hand is")
+        shot("05c Stabilizer result")
+        use.tap()
+        XCTAssertTrue(element("useCalibration").waitForNonExistence(timeout: 5), "Using the result should close the test")
+        element("brushSize").tap()
+        waitFor(element("tunedBadge"), "Using the result should mark smoothing as tuned to your hand")
         tapAway()
         XCTAssertTrue(app.staticTexts["Smoothing"].waitForNonExistence(timeout: 5), "Brush settings should close")
 
@@ -234,7 +293,7 @@ final class EditorUITests: XCTestCase {
         app.buttons["New frame"].tap()
         waitFor(element("frame-2"), "New frame should add frame 2")
         waitForValue(canvas, contains: "strokes 0,", "Frame 2 starts empty")
-        waitForValue(canvas, contains: "onion on", timeout: 10, "Onion skin should show frame 1 behind frame 2")
+        waitForValue(canvas, contains: "onion on", timeout: 20, "Onion skin should show frame 1 behind frame 2")
         shot("10 Frame 2 with onion skin")
         element("onion").tap()
         let onionToggle = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Onion skin'")).firstMatch

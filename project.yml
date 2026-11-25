@@ -31,6 +31,8 @@ targets:
         product: GaleCore
       - package: GaleKit
         product: GaleSync
+      - package: GaleKit
+        product: GalePixel
       - package: GaleLearn
         product: GaleLearn
     settings:

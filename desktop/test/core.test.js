@@ -130,3 +130,26 @@ test('hair sway keeps roots still and moves tips', () => {
   assert.deepEqual(moved[2], pts[2]);
   assert.deepEqual(Hair.deform(pts, { ...region, on: false }, 0.3), pts);
 });
+
+test('face mode turns smoothing off for details and keeps the slider amount', () => {
+  assert.equal(Stabilizer.drawAmount(0.8, true), 0);
+  assert.equal(Stabilizer.drawAmount(0.8, false), 0.8);
+  assert.equal(Stabilizer.drawAmount(2, false), 1);
+  assert.equal(Stabilizer.label(0.8, true), 'Face');
+  assert.equal(Stabilizer.label(0.8), '80%');
+  assert.equal(Stabilizer.label(0), 'Off');
+  // A wobbly little eye with the slider all the way up still draws exactly where you touched.
+  const raw = [];
+  for (let i = 0; i <= 30; i++) {
+    const a = (i / 30) * 2 * Math.PI;
+    const wob = Math.sin(i * 7.3) * 0.8;
+    raw.push(Model.point(200 + Math.cos(a) * (6 + wob), 200 + Math.sin(a) * (6 + wob), 0.5));
+  }
+  const out = Stabilizer.finish(raw, Stabilizer.drawAmount(1, true));
+  const near = (list, p) => Math.min(...list.map((q) => Math.hypot(q.x - p.x, q.y - p.y)));
+  for (const p of out) assert.ok(near(raw, p) < 1e-4, 'face mode moved a point');
+  for (const p of raw) assert.ok(near(out, p) < 0.36, 'face mode dropped a touch');
+  // The same slider without face mode does change the line.
+  const smoothed = Stabilizer.finish(raw, Stabilizer.drawAmount(1, false));
+  assert.ok(Math.max(...smoothed.map((p) => near(raw, p))) > 0.05, 'full smoothing should move the wobbly eye');
+});

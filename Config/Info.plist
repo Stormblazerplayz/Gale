@@ -42,7 +42,7 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<false/>
 	<key>NSCameraUsageDescription</key>
-	<string>Gale uses the camera to scan your body for character concepts and to scan the pairing code on your computer.</string>
+	<string>Gale uses the camera only to scan the pairing code on your computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Gale records voices and sounds for your animations and videos.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

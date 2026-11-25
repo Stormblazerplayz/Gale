@@ -40,6 +40,19 @@ final class EditorModel: ObservableObject {
     @Published var eraserSize: Double = 30 { didSet { saveSettings() } }
     /// 0 = off (draw exactly), 1 = smoothest. Starts light so faces and small details keep their shape.
     @Published var smoothing: Double = StrokeSmoothing.defaultAmount { didSet { saveSettings() } }
+    /// Snap to corners while drawing and smooth less at bends, so zigzags and boxes stay crisp.
+    @Published var sharpCorners: Bool = true { didSet { saveSettings() } }
+    /// What the last stabilizer test found (nil until you take it).
+    @Published var calibration: StabilizerCalibration.Result? { didSet { saveSettings() } }
+    /// The raw touches (screen points) of the last line you drew, for the before and after preview.
+    @Published var lastRawLine: [StrokePoint] = []
+    /// Set by the brush settings' "Test my hand" button: closes brush settings, then opens the stabilizer test.
+    @Published var stabilizerTestRequested = false
+    /// The stabilizer test is showing (full screen, so there's room to trace).
+    @Published var showStabilizerTest = false
+    /// Face mode: one tap turns smoothing off for eyes, mouths and other small details.
+    /// The slider keeps its setting, so turning Face mode off brings it right back.
+    @Published var faceMode: Bool = false { didSet { saveSettings() } }
     /// Let fingers draw even after an Apple Pencil was used (otherwise fingers only move and zoom).
     @Published var fingerDraws: Bool = true { didSet { saveSettings() } }
     @Published var onion = OnionSettings() { didSet { saveSettings() } }
@@ -55,6 +68,17 @@ final class EditorModel: ObservableObject {
     @Published var pencilSeen = false
     /// Set by the canvas so buttons can zoom it.
     var zoomToFit: (() -> Void)?
+
+    /// The smoothing strokes are actually drawn with (0 in Face mode).
+    var drawingSmoothing: Double { StrokeSmoothing.amount(smoothing, faceMode: faceMode) }
+
+    /// Sets the slider. Moving the slider means you want smoothing, so it leaves Face mode.
+    /// Only writes what changed, so dragging the slider doesn't save the settings twice for every touch.
+    func setSmoothing(_ value: Double) {
+        if faceMode { faceMode = false }
+        let v = min(1, max(0, value))
+        if v != smoothing { smoothing = v }
+    }
 
     var brush: Brush {
         if tool == .eraser { return Brush(kind: .eraser, color: .black, size: eraserSize, opacity: 1) }
@@ -87,6 +111,10 @@ final class EditorModel: ObservableObject {
         var fillGapClose: Double?
         /// Which smoothing tuning the saved amount was picked for. Missing means the old, much stronger one.
         var smoothingVersion: Int?
+        var sharpCorners: Bool?
+        var calibration: StabilizerCalibration.Result?
+        /// Missing in settings saved before Face mode existed.
+        var faceMode: Bool?
     }
 
     /// Bump when the smoothing math changes so much that an old saved amount would feel wrong.
@@ -105,10 +133,13 @@ final class EditorModel: ObservableObject {
         eraserSize = s.eraserSize
         // The old tuning started at a strong 0.55 that rounded off faces. Start everyone on the new light default once.
         smoothing = (s.smoothingVersion ?? 1) < Self.smoothingVersion ? StrokeSmoothing.defaultAmount : min(1, max(0, s.smoothing))
+        faceMode = s.faceMode ?? false
         fingerDraws = s.fingerDraws
         onion = s.onion
         recentColors = s.recentColors
         fillGapClose = s.fillGapClose ?? 4
+        sharpCorners = s.sharpCorners ?? true
+        calibration = s.calibration
         loading = false
         if (s.smoothingVersion ?? 1) < Self.smoothingVersion { saveSettings() }
     }
@@ -117,7 +148,8 @@ final class EditorModel: ObservableObject {
         guard !loading else { return }
         let s = Saved(brushKind: brushKind, color: color, size: size, opacity: opacity, eraserSize: eraserSize,
                       smoothing: smoothing, fingerDraws: fingerDraws, onion: onion, recentColors: recentColors,
-                      fillGapClose: fillGapClose, smoothingVersion: Self.smoothingVersion)
+                      fillGapClose: fillGapClose, smoothingVersion: Self.smoothingVersion,
+                      sharpCorners: sharpCorners, calibration: calibration, faceMode: faceMode)
         if let data = try? JSONEncoder().encode(s) { UserDefaults.standard.set(data, forKey: "gale.editor.settings") }
     }
 }

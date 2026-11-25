@@ -83,6 +83,26 @@ public enum SyncObjects {
             out[m.id] = [typeKey: .string("media"), "file": .string(m.file), "kind": .string(m.kind.rawValue),
                          "name": .string(m.name), "duration": .number(m.duration), "sha256": .string(m.sha256)]
         }
+        if let story = p.pixel {
+            // Pixel storytime: settings ride on the project, each scene and each frame is its own object,
+            // so drawing on one frame only sends that frame.
+            out[p.id]?["pixel"] = .object([
+                "width": .number(Double(story.width)), "height": .number(Double(story.height)),
+                "palette": .array(story.palette.map { .string($0.hex) }),
+                "paletteName": .string(story.paletteName), "paper": .string(story.paper.hex),
+            ])
+            for scene in story.scenes {
+                out[scene.id] = [typeKey: .string("pxscene"), "key": .string(scene.key), "name": .string(scene.name),
+                                 "fps": .number(Double(scene.fps)), "loops": .number(Double(scene.loops)),
+                                 "background": .number(Double(scene.background)), "caption": .string(scene.caption),
+                                 "bubbles": JSONValue.from(scene.bubbles), "transition": .string(scene.transition.rawValue)]
+                for f in scene.frames {
+                    out[f.id] = [typeKey: .string("pxframe"), "scene": .string(scene.id), "key": .string(f.key),
+                                 "hold": .number(Double(f.hold)),
+                                 "runs": .array(PixelRuns.encode(f.cells).map { .number(Double($0)) })]
+                }
+            }
+        }
         return out
     }
 
@@ -100,6 +120,8 @@ public enum SyncObjects {
         var clips: [JSONValue] = []
         var media: [JSONValue] = []
         var cels: [String: [String: (strokes: [JSONValue], fills: [JSONValue])]] = [:]
+        var pxScenes: [String: [String: JSONValue]] = [:]
+        var pxFrames: [String: [JSONValue]] = [:]
 
         for (id, o) in objects where alive(o) {
             var withID = o
@@ -113,6 +135,7 @@ public enum SyncObjects {
             case "track": tracks.append(.object(withID))
             case "clip": clips.append(.object(withID))
             case "media": media.append(.object(withID))
+            case "pxscene": pxScenes[id] = withID
             default: break
             }
         }
@@ -132,6 +155,15 @@ public enum SyncObjects {
             if t == "stroke" { entry.strokes.append(.object(item)) } else { entry.fills.append(.object(item)) }
             cels[f, default: [:]][l] = entry
         }
+        for (id, o) in objects where alive(o) && type(o) == "pxframe" {
+            guard let scene = o["scene"]?.string, pxScenes[scene] != nil else { continue }
+            var item = o
+            item["id"] = .string(id)
+            item[typeKey] = nil
+            item[deletedKey] = nil
+            item["scene"] = nil
+            pxFrames[scene, default: []].append(.object(item))
+        }
         var frameList: [JSONValue] = []
         for (id, var f) in frames {
             var celMap: [String: JSONValue] = [:]
@@ -140,6 +172,15 @@ public enum SyncObjects {
             }
             f["cels"] = .object(celMap)
             frameList.append(.object(f))
+        }
+        var pixel = JSONValue.null
+        if var settings = po["pixel"]?.object {
+            settings["scenes"] = .array(pxScenes.map { id, scene in
+                var s = scene
+                s["frames"] = .array(pxFrames[id] ?? [])
+                return .object(s)
+            })
+            pixel = .object(settings)
         }
         let json: [String: JSONValue] = [
             "format": .string(GaleProject.formatName),
@@ -155,6 +196,7 @@ public enum SyncObjects {
             "hair": .array(hair),
             "movie": .object(["overlay": po["overlay"] ?? .bool(false), "tracks": .array(tracks), "clips": .array(clips)]),
             "media": .array(media),
+            "pixel": pixel,
         ]
         guard var p = JSONValue.object(json.filter { $0.value != .null }).decode(GaleProject.self) else { return nil }
         p.normalize()

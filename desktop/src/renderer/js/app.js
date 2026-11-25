@@ -1,11 +1,11 @@
 'use strict';
-// Starts everything and switches between the three screens.
+// Starts everything and switches between the screens.
 (function () {
   const Gale = window.Gale;
   const { $, el, banner } = Gale.ui;
 
   function showScreen(id) {
-    for (const s of ['home', 'editor', 'pair']) $(s).hidden = s !== id;
+    for (const s of ['home', 'editor', 'pixel', 'pair']) $(s).hidden = s !== id;
   }
 
   async function start() {
@@ -20,11 +20,25 @@
       showScreen('home');
       Gale.home.render();
     };
-    const openProject = (id) => {
-      Gale.editor.open(client, id, goHome);
-      showScreen('editor');
-      Gale.editor.requestRender();
+    // Pixel stories open in the pixel editor, everything else in the drawing editor.
+    // `kind` ('pixel' or 'drawing') is given when the caller already knows; otherwise the list says.
+    const openProject = (id, done = goHome, kind) => {
+      const summary = client.projects.find((x) => x.id === id);
+      const pixel = kind ? kind === 'pixel' : !!(summary && summary.pixel);
+      if (Gale.editor.isOpen) Gale.editor.close();
+      if (Gale.pixelEditor.isOpen) Gale.pixelEditor.close();
+      if (pixel) {
+        Gale.pixelEditor.open(client, id, done);
+        showScreen('pixel');
+        Gale.pixelEditor.requestRender();
+      } else {
+        Gale.editor.open(client, id, done);
+        showScreen('editor');
+        Gale.editor.requestRender();
+      }
     };
+    // An editor that finds it opened the other kind of project hands it over with this.
+    Gale.openProject = (id, done, kind) => openProject(id, done || goHome, kind);
     const openPair = () => {
       showScreen('pair');
       Gale.pair.open();
@@ -32,6 +46,8 @@
 
     Gale.editor.init();
     Gale.editor.attach(client);
+    Gale.pixelEditor.init();
+    Gale.pixelEditor.attach(client);
     Gale.home.init(client, openProject, openPair);
     Gale.pair.init(() => {
       Gale.pair.close();
@@ -42,12 +58,13 @@
     const seen = new Set();
     client.on('projects', (list) => {
       const ids = new Set(list.map((p) => p.id));
-      const open = Gale.editor.isOpen ? Gale.editor.projectId : null;
+      const ed = Gale.editor.isOpen ? Gale.editor : Gale.pixelEditor.isOpen ? Gale.pixelEditor : null;
+      const open = ed ? ed.projectId : null;
       const wasThere = open && seen.has(open);
       seen.clear();
       for (const id of ids) seen.add(id);
       if (open && wasThere && !ids.has(open)) {
-        Gale.editor.close();
+        ed.close();
         goHome();
         Gale.ui.toast('That drawing was deleted on another device.', 3500);
       }

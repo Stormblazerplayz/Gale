@@ -168,7 +168,8 @@ final class LearnTouchView: UIView {
               let touch = touches.first(where: { $0.type == .pencil || $0.type == .direct }) else { return }
         activeTouch = touch
         strokeStart = touch.timestamp
-        let st = StrokeStabilizer(amount: smoothing, scale: 1)
+        // Lessons hand ink over piece by piece, so the stabilizer must never redraw: no corner snapping here.
+        let st = StrokeStabilizer(amount: smoothing, scale: 1, adaptive: false)
         stabilizer = st
         let first = convert(st.begin(sample(touch)))
         if let p = first.first { onBegin?(p.0, p.1) }

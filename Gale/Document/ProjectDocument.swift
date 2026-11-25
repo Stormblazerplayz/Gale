@@ -4,6 +4,7 @@ import CryptoKit
 import Foundation
 import GaleCore
 import GaleFormat
+import GalePixel
 import UIKit
 
 /// One open project. Every change goes through `edit`, which handles undo, saving and live sync.
@@ -168,7 +169,12 @@ final class ProjectDocument: ObservableObject {
         let folder = folder
         Task.detached(priority: .utility) {
             try? GaleIO.writeProject(p, to: folder)
-            if let cover = FrameRenderer.image(p, frameIndex: 0, scale: CGFloat(min(1, 480 / max(p.canvas.width, p.canvas.height)))),
+            if let story = p.pixel {
+                // Pixel stories make their cover from the pixel art itself.
+                if let png = story.coverImage().pngData() {
+                    try? png.write(to: folder.appendingPathComponent(GaleIO.coverFile), options: .atomic)
+                }
+            } else if let cover = FrameRenderer.image(p, frameIndex: 0, scale: CGFloat(min(1, 480 / max(p.canvas.width, p.canvas.height)))),
                let png = UIImage(cgImage: cover).pngData() {
                 try? png.write(to: folder.appendingPathComponent(GaleIO.coverFile), options: .atomic)
             }

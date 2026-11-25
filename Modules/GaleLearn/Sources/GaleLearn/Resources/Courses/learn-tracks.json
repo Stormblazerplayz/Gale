@@ -4,7 +4,7 @@
     {
       "id": "animation",
       "title": "2D Animation",
-      "subtitle": "From your first line to walk cycles, acting and effects",
+      "subtitle": "From your first line to walk cycles, acting, lip sync and effects",
       "symbol": "figure.walk.motion",
       "courses": [
         "pro",
@@ -15,6 +15,7 @@
         "walk",
         "run",
         "acting",
+        "lipsync",
         "effects",
         "hair"
       ]

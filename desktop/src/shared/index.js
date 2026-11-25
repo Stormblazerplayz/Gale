@@ -10,8 +10,12 @@ module.exports = {
   Geometry: require('./geometry'),
   StrokeShape: require('./strokeShape'),
   Stabilizer: require('./stabilizer'),
+  Calibration: require('./calibration'),
   Onion: require('./onion'),
   Hair: require('./hair'),
   Playback: require('./playback'),
   Edits: require('./edits'),
+  Pixel: require('./pixel'),
+  PixelStory: require('./pixelStory'),
+  PixelGif: require('./pixelGif'),
 };

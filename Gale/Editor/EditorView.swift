@@ -51,7 +51,8 @@ struct EditorView: View {
     private var canvasState: CanvasState {
         CanvasState(project: document.project, frameIndex: min(document.currentFrame, document.project.frames.count - 1),
                     layerID: document.currentLayerID, onion: model.onion, tool: model.tool, brush: model.brush,
-                    smoothing: model.smoothing, fingerDraws: model.fingerDraws, selection: model.selection,
+                    smoothing: model.drawingSmoothing, sharpCorners: model.sharpCorners, fingerDraws: model.fingerDraws,
+                    selection: model.selection,
                     hairSide: model.hairSide, fillGap: model.fillGapClose)
     }
 
@@ -118,6 +119,17 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showExport) {
             ExportSheet(document: document)
+        }
+        .fullScreenCover(isPresented: $model.showStabilizerTest) {
+            // Full screen, not a sheet: a sheet's swipe-to-close would steal your tracing strokes.
+            StabilizerCalibrationView(model: model)
+        }
+        .onChange(of: model.stabilizerTestRequested) { _, asked in
+            // Close brush settings first, then open the test once the popup has gone.
+            guard asked else { return }
+            model.stabilizerTestRequested = false
+            showBrush = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.showStabilizerTest = true }
         }
         .sheet(isPresented: $showSettings) {
             EditorSettingsSheet(document: document, model: model)
@@ -289,16 +301,19 @@ struct ToolBar: View {
                 // A Form has no natural height, so a popover would shrink it to one row.
                 // Give it a real size so every setting shows.
                 BrushPanel(model: model)
-                    .frame(minWidth: 320, idealWidth: 340, minHeight: model.tool == .eraser ? 260 : 480, idealHeight: model.tool == .eraser ? 300 : 560)
+                    .frame(minWidth: 340, idealWidth: 380, minHeight: model.tool == .eraser ? 460 : 560, idealHeight: model.tool == .eraser ? 560 : 760)
                     .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
             }
-            // Smoothing right on the toolbar on iPad, so it's easy to turn down for faces and details.
-            // On a narrow screen it lives in the brush settings instead.
-            if sizeClass != .compact && (model.tool == .brush || model.tool == .eraser) {
+            // Face mode and smoothing right on the toolbar, so faces and details are one tap away.
+            // On a narrow screen the slider lives in the brush settings, but Face mode stays here.
+            if model.tool == .brush || model.tool == .eraser {
                 Divider().frame(height: 28)
-                SmoothingControl(value: $model.smoothing, compact: true)
-                    .frame(width: 190)
+                FaceModeButton(model: model, compact: true)
+                if sizeClass != .compact {
+                    SmoothingControl(model: model, compact: true)
+                        .frame(width: 190)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -355,28 +370,47 @@ struct BrushPanel: View {
                     }
                 }
             }
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Smoothing")
-                        Spacer()
-                        Button("Reset") { model.smoothing = StrokeSmoothing.defaultAmount }
-                            .font(.footnote)
-                            .buttonStyle(.borderless)
-                            .disabled(abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
-                            .accessibilityIdentifier("smoothingReset")
-                    }
-                    SmoothingControl(value: $model.smoothing, compact: false)
-                }
-            } footer: {
-                Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Corners and small strokes like eyes keep their shape either way.")
-            }
+            StabilizerSection(model: model)
         }
     }
 }
 
 /// The smoothing strength slider: 0 is Off, with the amount shown as a percentage.
+/// In Face mode it shows "Face" and dims; moving it (or tapping Off) leaves Face mode.
 struct SmoothingControl: View {
+    @ObservedObject var model: EditorModel
+    var compact: Bool
+
+    private var drawn: Double { model.drawingSmoothing }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { model.setSmoothing(0) } label: {
+                Image(systemName: drawn < 0.005 ? "scribble" : "scribble.variable")
+                    .font(.system(size: compact ? 15 : 17, weight: .semibold))
+                    .foregroundStyle(drawn < 0.005 ? Color.secondary : Theme.accent)
+                    .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Turn smoothing off")
+            .accessibilityIdentifier("smoothingOff")
+            Slider(value: Binding(get: { model.smoothing }, set: { model.setSmoothing($0 < 0.02 ? 0 : $0) }), in: 0...1)
+                .tint(Theme.accent)
+                .opacity(model.faceMode ? 0.45 : 1)
+                .accessibilityLabel("Smoothing strength")
+                .accessibilityValue(StrokeSmoothing.label(model.smoothing, faceMode: model.faceMode))
+                .accessibilityIdentifier("smoothing")
+            Text(StrokeSmoothing.label(model.smoothing, faceMode: model.faceMode))
+                .font((compact ? Font.caption : Font.subheadline).monospacedDigit())
+                .foregroundStyle(model.faceMode ? Theme.accent : Color.secondary)
+                .frame(width: compact ? 36 : 44, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// The same slider for a value that isn't the editor's own setting (the stabilizer test's "try it" amount).
+struct SmoothingValueControl: View {
     @Binding var value: Double
     var compact: Bool
 
@@ -390,18 +424,37 @@ struct SmoothingControl: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Turn smoothing off")
-            .accessibilityIdentifier("smoothingOff")
             Slider(value: Binding(get: { value }, set: { value = $0 < 0.02 ? 0 : $0 }), in: 0...1)
                 .tint(Theme.accent)
                 .accessibilityLabel("Smoothing strength")
                 .accessibilityValue(StrokeSmoothing.label(value))
-                .accessibilityIdentifier("smoothing")
             Text(StrokeSmoothing.label(value))
                 .font((compact ? Font.caption : Font.subheadline).monospacedDigit())
                 .foregroundStyle(.secondary)
                 .frame(width: compact ? 36 : 44, alignment: .trailing)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+/// One tap turns smoothing off for faces and small details, and one more tap brings it back.
+struct FaceModeButton: View {
+    @ObservedObject var model: EditorModel
+    var compact: Bool
+
+    var body: some View {
+        Button { model.faceMode.toggle() } label: {
+            Image(systemName: model.faceMode ? "face.smiling.inverse" : "face.smiling")
+                .font(.system(size: compact ? 18 : 20, weight: .semibold))
+                .frame(width: 36, height: 36)
+                .background(model.faceMode ? Theme.accent.opacity(0.2) : .clear, in: Circle())
+                .foregroundStyle(model.faceMode ? Theme.accent : .primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Face mode")
+        .accessibilityValue(model.faceMode ? "on" : "off")
+        .accessibilityHint("Turns smoothing off for eyes, mouths and small details")
+        .accessibilityIdentifier("faceMode")
     }
 }
 

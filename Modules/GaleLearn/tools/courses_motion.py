@@ -1,4 +1,4 @@
-"""Track "2D Animation": Bouncing Ball, Walk, Run, Acting, Effects, Hair & Cloth."""
+"""Track "2D Animation": More Bounces, Walk, Run and Effects (plus the ponytail sim hair lessons use)."""
 import math
 
 from learn_geo import (ASPECT, GROUND, TAU, arc, catmull, circle, dist, ease_in, ease_in_out, ease_out, ellipse,
@@ -33,73 +33,6 @@ def bounce_path(x0, y0, vx, g, e, steps, floor=BC):
 
 def ball_course():
     L = []
-    top = 0.15
-    drop5 = [top + (BC - top) * (k / 4) ** 2 for k in range(5)]
-    drop_frames = []
-    for k in range(7):
-        i = min(k, 4)
-        paths = [ghost_ball(CX, drop5[j]) for j in range(i)]
-        paths.append(ball(CX, drop5[i]))
-        drop_frames.append(F(paths, hold=6 if k == 6 else 2))
-    L.append(lesson("ball.drop", "The Drop", "Gravity makes falling things speed up.", [
-        read("Gravity speeds things up",
-             "When you drop a ball, it starts slow and falls faster and faster. That's gravity. So the gaps between "
-             "your drawings get bigger each frame: small at the top, big at the bottom.", G(drop_frames, bg=[ground()])),
-        frames("Drop it", "Draw the ball falling. Make each gap bigger than the one before.",
-               [F([ball(CX, y)]) for y in drop5], bg=[ground()], hint="Tiny gap at the top, biggest gap at the bottom.",
-               checks=[chk_spacing("easeIn")], fps=6, loop=False),
-        quiz("When a ball falls, its drawings should be...",
-             ["Close together at the top, far apart at the bottom", "Far apart at the top, close at the bottom",
-              "Evenly spaced"], 0, "Gravity makes it faster as it falls, so the gaps grow."),
-    ]))
-
-    across = bounce_path(0.12, 0.2, 0.055, 0.011, 1.0, 20)
-    across_frames = []
-    for k, (x, y) in enumerate(across):
-        across_frames.append(F([ball(x, y, r=0.06), accent(across[:k + 1])] if k else [ball(x, y, r=0.06)]))
-    six = []
-    for k in range(6):
-        u = k / 6
-        s = 2 * u - 1
-        six.append(F([ball(CX, BC - 0.58 * (1 - s * s))]))
-    L.append(lesson("ball.bounce", "The Bounce", "Up, down, and up again.", [
-        read("Up, down, up",
-             "A bounce is a fall and a rise. Going up, the ball slows down until it stops at the top for a moment. "
-             "Coming down, it speeds up until it hits the ground. So the drawings bunch up at the top and spread "
-             "out near the ground.", G([F([p]) for p in vertical_bounce(CX, squash=False)], bg=[ground()])),
-        read("Moving forward",
-             "If the ball also moves sideways, the sideways spacing stays even while the up-and-down spacing "
-             "follows gravity. Together they make an arc, like the orange path.", G(across_frames, bg=[ground()], fps=12)),
-        frames("One bounce", "Draw a whole bounce in place: ground, rising, top, falling. Frame 6 leads back to frame 1.",
-               six, bg=[ground()], hint="The two drawings near the top are close together. Near the ground they're far apart.",
-               checks=[chk_loop()], fps=8),
-        quiz("Where does a bouncing ball move slowest?",
-             ["At the top of the bounce", "Just before it hits the ground", "It's always the same speed"], 0,
-             "At the top it stops going up and starts coming down, so it's slowest there."),
-    ]))
-
-    shapes = still([ball(0.3, 0.5, r=0.12), ball(CX, 0.5, r=0.12, stretch=1 / 0.62, angle=0.0),
-                    ball(1.04, 0.5, r=0.12, stretch=1.45)],
-                   notes=[("normal", 0.3, 0.75), ("squash", CX, 0.75), ("stretch", 1.04, 0.8)])
-    rb = 0.1
-    L.append(lesson("ball.squash", "Squash & Stretch", "Make the bounce feel soft.", [
-        read("Squish on impact",
-             "Now add squash and stretch. Just before and after it hits the ground, the ball is moving fastest, so "
-             "it stretches along its path. On the frame it touches the ground, it squashes flat. At the top it's round.",
-             G([F([p]) for p in vertical_bounce(CX)], bg=[ground()])),
-        read("Keep the volume",
-             "A squashed ball gets wider. A stretched ball gets thinner. It always keeps the same amount of ball, "
-             "or it will look like it's growing and shrinking.", shapes),
-        frames("Three key drawings",
-               "Draw the ball stretched as it falls, squashed on the ground, then stretched as it shoots back up.",
-               [F([ball(CX, 0.55, rb, stretch=1.35)]), F([ink_squash(CX, FLOOR, rb, 0.65)]),
-                F([ball(CX, 0.4, rb, stretch=1.25)])],
-               bg=[ground()], hint="Tall and thin, then short and wide, then tall and thin again.", fps=4),
-        quiz("When is the ball stretched the most?",
-             ["When it's moving fastest, near the ground", "At the very top", "When it's lying still"], 0,
-             "Speed causes stretch, and the ball is fastest near the ground."),
-    ]))
-
     decay = bounce_path(0.1, 0.12, 0.034, 0.012, 0.72, 34)
     decay_frames = [F([ball(x, y, r=0.05)] + ([accent(decay[:k + 1])] if k else []), hold=8 if k == 33 else 1)
                     for k, (x, y) in enumerate(decay)]
@@ -149,7 +82,7 @@ def ball_course():
         quiz("A light beach ball should...", ["Bounce high and float down slowly", "Hit hard and barely bounce",
                                               "Not move at all"], 0, "Air slows light things down, so they float."),
     ]))
-    return course("ball", TRACK, "Bouncing Ball", "Timing, spacing, squash and stretch", "circle.circle", ["basics"], L)
+    return course("ball", TRACK, "More Bounces", "Losing energy, heavy and light", "circle.circle", ["pro"], L)
 
 
 # ---------------------------------------------------------------- Walk and Run
@@ -317,92 +250,6 @@ def run():
     ]))
     return course("run", TRACK, "Run Cycle", "Lean, flight and speed", "figure.run", ["walk"], L)
 
-
-# ---------------------------------------------------------------- Acting & Lip Sync
-
-def acting():
-    L = []
-    MX, MY, MS = CX, 0.5, 1.6
-    cycle = [F(mouth(m, MX, MY, MS), hold=8, notes=[(MOUTH_WORDS[m], MX, 0.12)]) for m in MOUTHS]
-    L.append(lesson("acting.mouths", "Mouth Shapes", "A few shapes cover every sound.", [
-        read("A few shapes say it all",
-             "You don't need a new mouth for every letter. About eight shapes cover almost every sound: A (open), "
-             "E (wide), O (round), U (small and round), M B P (lips pressed), F V (top teeth on the lip), "
-             "L (tongue up) and a resting mouth.", G(cycle)),
-        trace("O", "Trace the O shape: round lips, like saying \"oh\".", mouth("O", MX, MY, MS), hint="Two ovals, one inside the other."),
-        trace("E", "Trace the E shape: wide, like a big \"eee\" smile.", mouth("E", MX, MY, MS), hint="A wide oval with a line of teeth."),
-        trace("M B P", "Trace the M B P shape: lips pressed together.", mouth("MBP", MX, MY, MS),
-              hint="The top lip, the bottom lip and the line where they meet."),
-        quiz("Which mouth shape do you use for the M in \"mom\"?", ["Lips pressed together", "Wide open", "Round O"], 0,
-             "M, B and P all start with the lips pressed shut."),
-    ]))
-
-    hello = [("E", 2), ("L", 2), ("O", 5), ("rest", 8)]
-    say = [F(face(mouth_shape=m), hold=h, notes=[({"E": "he", "L": "l", "O": "lo", "rest": ""}[m] or "...", CX, 0.05)])
-           for m, h in hello]
-    L.append(lesson("acting.word", "Say a Word", "Lip sync \"hello\".", [
-        read("Say hello",
-             "To lip sync, say the word slowly and listen for the main sounds. \"Hello\" is roughly E, L, O. Hold the "
-             "vowels (like the O at the end) a little longer, and skip the tiny sounds.", G(say, fps=12)),
-        frames("Draw hello", "Draw the four mouths for \"hello\": E, L, O, then rest.",
-               [F(mouth(m, MX, MY, MS)) for m, _ in hello], hint="Use the faint guide for each shape.", fps=4,
-               loop=False),
-        quiz("Do you need a new mouth shape for every letter?", ["No, just the main sounds", "Yes, every single letter"], 0,
-             "Animating every letter looks fluttery. Pick the sounds you can hear."),
-        quiz("Which sounds usually get held the longest?", ["Vowels like A, E and O", "Sounds like T and K"], 0,
-             "Vowels are the long, open sounds in a word."),
-    ]))
-
-    EX, EY, ES = CX, 0.5, 0.32
-    seq = [(1.0, 10), (0.5, 1), (0.0, 2), (0.5, 1), (1.0, 14)]
-    blink = [F(eye(EX, EY, ES, o), hold=h) for o, h in seq]
-    L.append(lesson("acting.blink", "Blinks", "Quick blinks make characters feel alive.", [
-        read("A quick blink",
-             "A blink is fast: open, half closed, closed, half open, open. The closed eye only stays for a frame or "
-             "two, and the top lid does most of the moving. A slow blink can show a character is tired or thinking.",
-             G(blink)),
-        frames("Draw a blink", "Draw the eye open, half closed, then closed.",
-               [F(eye(EX, EY, ES, o)) for o in (1.0, 0.5, 0.0)], hint="The top lid slides down each frame.", fps=4,
-               loop=False),
-        quiz("Which eyelid moves the most in a blink?", ["The top lid", "The bottom lid"], 0,
-             "The top lid comes down to meet the bottom one."),
-    ]))
-
-    def pose_on(curve_pts, base):
-        """A stick pose built along a line of action (hips at the bottom, head at the top)."""
-        hip = curve_pts[0]
-        neck = curve_pts[-1]
-        spine = curve_pts
-        d = (neck[0] - curve_pts[-2][0], neck[1] - curve_pts[-2][1])
-        Ld = math.hypot(*d) or 1
-        head = (neck[0] + d[0] / Ld * 0.07, neck[1] + d[1] / Ld * 0.07)
-        sh = curve_pts[int(len(curve_pts) * 0.85)]
-        arms = [[sh, (sh[0] - 0.14, sh[1] - 0.1), (sh[0] - 0.22, sh[1] - 0.22)],
-                [sh, (sh[0] + 0.12, sh[1] + 0.06), (sh[0] + 0.24, sh[1])]]
-        legs = [[hip, (hip[0] - 0.08, hip[1] + 0.15), (hip[0] - 0.14, base)],
-                [hip, (hip[0] + 0.1, hip[1] + 0.14), (hip[0] + 0.16, base)]]
-        return [ink(spine), ink(circle(head[0], head[1], 0.07, n=24), closed=True)] + [ink(a) for a in arms + legs]
-    straight_c = [(CX, 0.58 - 0.36 * t) for t in (i / 10 for i in range(11))]
-    c_curve = [(CX - 0.12 * math.sin(math.pi * t), 0.58 - 0.36 * t) for t in (i / 10 for i in range(11))]
-    s_curve = [(CX + 0.07 * math.sin(TAU * t), 0.58 - 0.36 * t) for t in (i / 10 for i in range(11))]
-    loa = []
-    for name, c in (("stiff", straight_c), ("C curve", c_curve), ("S curve", s_curve)):
-        loa.append(F(pose_on(c, 0.86) + [accent(move(c, 0.0, 0.0), w=0.01)], hold=14, notes=[(name, CX, 0.08)]))
-    big_c = [(CX - 0.25 * math.sin(math.pi * t), 0.88 - 0.76 * t) for t in (i / 30 for i in range(31))]
-    L.append(lesson("acting.pose", "Line of Action", "Strong poses flow along one line.", [
-        read("One strong line",
-             "A strong pose follows one clear line through the whole body, called the line of action. A C-curve or an "
-             "S-curve feels full of energy. A stiff straight line feels flat. The orange line is the line of action.",
-             G(loa)),
-        trace("Draw the line of action", "Trace a big, confident C-curve. This is where a pose starts.", [ink(big_c)],
-              hint="One smooth sweep, from bottom to top.", checks=[chk_smooth()]),
-        trace("Build a pose on it", "Trace a pose that follows the C-curve: the back bends along the line.",
-              pose_on(c_curve, 0.86), hint="Start with the curved back, then the head, then the arms and legs."),
-        quiz("Which line of action has the most energy?", ["A curvy C or S line", "A stiff straight line"], 0,
-             "Curves feel alive; straight lines feel stiff."),
-    ]))
-    return course("acting", TRACK, "Acting & Lip Sync", "Mouth shapes, blinks and strong poses", "face.smiling",
-                  ["principles"], L)
 
 
 # ---------------------------------------------------------------- Effects
@@ -596,88 +443,3 @@ def ponytail_sim(head_xs, head_y, r, segs=6, seg_len=0.06):
             pts.append((x + seg_len * math.sin(a), y + seg_len * math.cos(a)))
         out.append(pts)
     return out
-
-
-def hair():
-    L = []
-    n = 30
-    xs = []
-    for k in range(n):
-        if k < 10:
-            xs.append(0.35 + 0.55 * ease_in_out(k / 9))
-        else:
-            xs.append(0.9)
-    hy, hr = 0.35, 0.12
-    tails = ponytail_sim(xs, hy, hr)
-    follow = [F([ink(circle(x, hy, hr, n=36), closed=True), ink(catmull(t, per=3))]) for x, t in zip(xs, tails)]
-    after = list(range(10, n))
-    over = max(after, key=lambda k: tails[k][-1][0] - xs[k])
-    back = min(range(over, n), key=lambda k: tails[k][-1][0] - xs[k])
-    picks = [over, back, n - 1]
-    L.append(lesson("hair.follow", "Hair Follows", "Hair drags behind, overshoots, then settles.", [
-        read("Hair drags behind",
-             "Hair is attached at the roots, but the rest is loose. When the head moves, the hair lags behind. When "
-             "the head stops, the hair keeps going, swings past, then settles. The tips are always last.", G(follow, fps=12)),
-        frames("Stop and settle", "The head just stopped. Draw the ponytail swinging past, swinging back, then hanging still.",
-               [F([ink(circle(xs[k], hy, hr, n=36), closed=True), ink(catmull(tails[k], per=3))]) for k in picks],
-               hint="The tip of the ponytail moves the most.", fps=4, loop=False),
-        quiz("When a character stops suddenly, their ponytail...", ["Keeps swinging, then settles", "Stops instantly",
-                                                                    "Points straight up"], 0,
-             "Loose things carry on moving: that's follow through."),
-    ]))
-
-    pole_x, top_y, bot_y, flag_w = 0.3, 0.2, 0.5, 0.75
-
-    def flag(t, n_=24):
-        def off(u):
-            return 0.06 * u * math.sin(TAU * (1.2 * u - t))
-        top = [(pole_x + flag_w * u, top_y + off(u) + 0.02 * u) for u in (i / n_ for i in range(n_ + 1))]
-        bottom = [(pole_x + flag_w * u, bot_y + off(u) - 0.01 * u) for u in (i / n_ for i in range(n_ + 1))]
-        return top + list(reversed(bottom))
-    pole = [helper(line((pole_x, 0.12), (pole_x, 0.92)), w=0.012)]
-    L.append(lesson("hair.flag", "Waving Flag", "Waves travel along the cloth.", [
-        read("Waves travel",
-             "On a flag, the cloth is held still at the pole. The wind sends waves along the cloth from the pole to the "
-             "free end, and the free end flaps the most.", G([F([ink(flag(k / 12), closed=True)]) for k in range(12)], bg=pole)),
-        frames("Flag loop", "Draw the flag on 4 frames. Watch the wave move away from the pole. Frame 4 leads into frame 1.",
-               [F([ink(flag(k / 4), closed=True)]) for k in range(4)], bg=pole,
-               hint="The edge at the pole never moves.", checks=[chk_loop()], fps=6),
-        quiz("Which way do the waves travel on a flag?", ["From the pole to the free end", "From the free end to the pole"],
-             0, "The pole holds one end, so the waves start there and run outward."),
-    ]))
-
-    def caped(t):
-        pose = walk_pose(t, run=True, hip_x=0.8)
-        neck = pose["torso"][1]
-        hip = pose["torso"][0]
-        sh = lerp2(hip, neck, 0.95)
-        length_ = 0.42
-        top_edge = []
-        bot_edge = []
-        for i in range(13):
-            u = i / 12
-            wv = 0.035 * u * math.sin(TAU * (1.5 * u - 2 * t))
-            top_edge.append((sh[0] - length_ * u, sh[1] + 0.02 + 0.1 * u * u + wv))
-            bot_edge.append((sh[0] - 0.02 - length_ * u * 0.95, sh[1] + 0.18 + 0.12 * u + wv))
-        cape = top_edge + list(reversed(bot_edge))
-        return figure(pose) + [ink(cape, closed=True)], cape
-    cape_frames = [F(caped(k / 8)[0]) for k in range(8)]
-    L.append(lesson("hair.cape", "Capes & Scarves", "Cloth that drags and ripples.", [
-        read("Capes and scarves",
-             "A cape or scarf works like hair and a flag together: attached at one end, it drags behind when the "
-             "character moves, and waves ripple from the attached end to the tip. The faster the character, the "
-             "flatter the cape flies.", G(cape_frames, fps=10, bg=[ground()])),
-        trace("Draw the cape", "Trace the runner and the cape flying behind.", caped(0.0)[0], bg=[ground()],
-              hint="Draw the runner first, then the cape from the shoulders backward."),
-        tool("Sway a scarf", "Hair Sway works on cloth too.", "hairSway", [
-            "Draw a scarf or cape on its own layer.",
-            "Use Hair Sway on it, just like hair: circle it and draw the root line where it's attached.",
-            "Turn up the wind so it blows back, and add gusts for flapping.",
-        ]),
-        quiz("What makes a cape fly flatter behind a character?", ["Moving faster", "Moving slower", "Standing still"], 0,
-             "More speed means more wind pushing the cape back."),
-    ]))
-    return course("hair", TRACK, "Hair & Cloth", "Follow through, flags and capes", "wind", ["principles"], L)
-
-
-

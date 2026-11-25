@@ -586,6 +586,8 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
     public var hair: [HairRegion]
     public var movie: Movie
     public var media: [MediaItem]
+    /// Set for pixel storytime projects (see Pixel.swift). nil for normal drawings.
+    public var pixel: PixelStory?
 
     public init(id: String = GaleID.make(), name: String, canvas: GaleCanvas = GaleCanvas(), fps: Int = 12) {
         format = GaleProject.formatName
@@ -603,9 +605,24 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
         hair = []
         movie = Movie()
         media = []
+        pixel = nil
     }
 
-    enum CodingKeys: String, CodingKey { case format, id, name, created, modified, canvas, fps, motionBlur, layers, frames, hair, movie, media }
+    /// A new pixel storytime project.
+    public init(id: String = GaleID.make(), name: String, pixel story: PixelStory) {
+        self.init(id: id, name: name, canvas: GaleProject.pixelCanvas(story), fps: story.scenes.first?.fps ?? 8)
+        pixel = story
+    }
+
+    /// The canvas a pixel story reports to apps that only know drawings: its grid scaled up, on its paper color.
+    public static func pixelCanvas(_ story: PixelStory) -> GaleCanvas {
+        let k = max(1, 1024 / max(story.width, story.height))
+        return GaleCanvas(width: Double(story.width * k), height: Double(story.height * k), background: story.paper)
+    }
+
+    public var isPixelStory: Bool { pixel != nil }
+
+    enum CodingKeys: String, CodingKey { case format, id, name, created, modified, canvas, fps, motionBlur, layers, frames, hair, movie, media, pixel }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -622,6 +639,7 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
         hair = c.value(.hair, or: [])
         movie = c.value(.movie, or: Movie())
         media = c.value(.media, or: [])
+        pixel = (try? c.decodeIfPresent(PixelStory.self, forKey: .pixel)) ?? nil
         normalize()
     }
 
@@ -633,6 +651,7 @@ public struct GaleProject: Codable, Hashable, Identifiable, Sendable {
         if frames.isEmpty { frames = [Frame(key: OrderKey.first)] }
         fps = min(60, max(1, fps))
         movie.tracks.sort { ($0.key, $0.id) < ($1.key, $1.id) }
+        pixel?.normalize()
     }
 
     // MARK: Lookups
