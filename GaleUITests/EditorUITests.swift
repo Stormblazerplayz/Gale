@@ -207,6 +207,31 @@ final class EditorUITests: XCTestCase {
         element("brushSize").tap()
         waitFor(app.staticTexts["Smoothing"], "Brush size should open brush settings")
         shot("05 Brush settings")
+
+        // 7b. Stabilizer panel: keep-corners switch, then the hand test measures a few traced shapes.
+        waitFor(element("sharpCorners"), "Brush settings should have the Keep corners sharp switch")
+        let test = waitFor(element("stabilizerTest"), "Brush settings should have the stabilizer test button")
+        test.tap()
+        waitFor(element("calibrationStep"), "The stabilizer test should open")
+        shot("05b Stabilizer test")
+        let pad = waitFor(element("calibrationPad"), "The stabilizer test should have a tracing pad")
+        // Trace across the pad slowly, like a hand would, until Gale has enough to measure.
+        for _ in 0..<4 where !element("useCalibration").exists && !element("calibrationFinishEarly").exists {
+            pad.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.7)).press(
+                forDuration: 0.05, thenDragTo: pad.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.3)),
+                withVelocity: XCUIGestureVelocity(rawValue: 250), thenHoldForDuration: 0.05)
+            Thread.sleep(forTimeInterval: 0.8)
+        }
+        if !element("useCalibration").exists {
+            waitFor(element("calibrationFinishEarly"), "After two traced shapes Gale should offer the result").tap()
+        }
+        let use = waitFor(element("useCalibration"), "The stabilizer test should show a result")
+        waitFor(element("calibrationLevel"), "The result should say how steady the hand is")
+        shot("05c Stabilizer result")
+        use.tap()
+        XCTAssertTrue(element("useCalibration").waitForNonExistence(timeout: 5), "Using the result should close the test")
+        element("brushSize").tap()
+        waitFor(element("tunedBadge"), "Using the result should mark smoothing as tuned to your hand")
         tapAway()
         XCTAssertTrue(app.staticTexts["Smoothing"].waitForNonExistence(timeout: 5), "Brush settings should close")
 

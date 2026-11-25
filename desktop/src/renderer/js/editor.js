@@ -42,6 +42,8 @@
     thumbs: new Map(),
     raf: 0,
     preview: null,
+    // Raw touches (screen pixels) of the last line drawn, for the stabilizer preview.
+    lastRaw: null,
     settings: null,
     active: false,
     onClose: null,
@@ -66,6 +68,10 @@
       // The old tuning started at a strong 0.55 that rounded off faces: move everyone to the light default once.
       smoothing: (s.smoothingVersion || 1) < SMOOTHING_VERSION ? Stabilizer.DEFAULT_AMOUNT : num(s.smoothing, Stabilizer.DEFAULT_AMOUNT, 0, 1),
       smoothingVersion: SMOOTHING_VERSION,
+      // "Keep corners sharp": snap to corners while drawing and smooth less at bends.
+      sharpCorners: s.sharpCorners !== false,
+      // What the last stabilizer test found (null until you take it).
+      calibration: s.calibration && typeof s.calibration.level === 'string' ? s.calibration : null,
       onion: Onion.settings(s.onion),
       recent: Array.isArray(s.recent) ? s.recent.filter((c) => Color.parse(c)).slice(0, 12) : [],
     };
@@ -407,9 +413,10 @@
     viewCanvas().setPointerCapture(e.pointerId);
     const t0 = e.timeStamp;
     const scale = 1 / E.view.scale;
-    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, scale);
+    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, scale, E.settings.sharpCorners);
     const brush = currentBrush(penEraser);
-    const raw = stab.begin(penPoint(e, t0));
+    const first = penPoint(e, t0);
+    const raw = stab.begin(first);
     E.drawing = {
       id: e.pointerId,
       t0,
@@ -417,6 +424,8 @@
       brush,
       scale,
       raw,
+      // The touches before any smoothing, for the before and after preview.
+      input: [first],
       points: raw.slice(),
       strokeId: Model.makeId(),
       frameId: E.frameId,
@@ -438,10 +447,14 @@
     if (!d || e.pointerId !== d.id) return;
     const events = typeof e.getCoalescedEvents === 'function' ? e.getCoalescedEvents() : [];
     for (const ev of events.length ? events : [e]) {
-      for (const q of d.stab.add(penPoint(ev, d.t0))) d.raw.push(q);
+      const q = penPoint(ev, d.t0);
+      d.stab.add(q);
+      d.input.push(q);
     }
+    // A snap to a corner can redraw the end of the line, so always take the whole line.
+    d.raw = d.stab.points;
     // Same finishing step while drawing and when you lift, so the line never jumps.
-    d.points = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
+    d.points = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale, E.settings.sharpCorners);
     sendLive(false);
     requestRender();
   }
@@ -455,8 +468,14 @@
       requestRender();
       return;
     }
-    for (const q of d.stab.end()) d.raw.push(q);
-    const pts = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
+    d.stab.end();
+    d.raw = d.stab.points;
+    const pts = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale, E.settings.sharpCorners);
+    if (d.brush.kind !== 'eraser' && d.input.length >= 8) {
+      // Keep the raw touches in screen pixels, so the preview smooths them the way you saw.
+      E.lastRaw = d.input.map((q) => ({ ...q, x: q.x / d.scale, y: q.y / d.scale }));
+      drawStabilizerPreview();
+    }
     const stroke = { id: d.strokeId, key: 'a0', brush: d.brush, pts: Model.packPoints(pts) };
     E.drawing = { ...d, points: pts };
     sendLive(true);
@@ -590,6 +609,14 @@
     stage().classList.toggle('pan', id === 'hand');
   }
 
+  /** Your last line before and after smoothing, in the brush panel. */
+  function drawStabilizerPreview() {
+    const c = $('br-preview');
+    if (!c || !Gale.stabilizer) return;
+    Gale.stabilizer.drawBeforeAfter(c, E.lastRaw, E.settings.smoothing, E.settings.sharpCorners,
+      'Draw a line to see it here, before and after smoothing.');
+  }
+
   function refreshBrush() {
     const s = E.settings;
     $('br-color').value = Color.toInputValue(s.color);
@@ -601,6 +628,12 @@
     $('br-opacity').disabled = E.tool === 'eraser';
     $('br-smooth').value = String(Math.round(s.smoothing * 100));
     $('br-smooth-out').textContent = Stabilizer.label(s.smoothing);
+    $('br-corners').checked = s.sharpCorners;
+    const tuned = $('br-tuned');
+    tuned.hidden = !s.calibration;
+    tuned.textContent = s.calibration ? `Tuned: ${s.calibration.level}` : '';
+    $('br-test').textContent = s.calibration ? '✋ Test my hand again' : '✋ Test my hand';
+    drawStabilizerPreview();
     const sw = $('br-swatches');
     sw.textContent = '';
     for (const c of PALETTE) sw.appendChild(el('button', { class: 'swatch', title: c.slice(0, 7), style: `background:${Color.toCss(c)}`, onclick: () => pickColor(c) }));
@@ -1046,6 +1079,21 @@
       E.settings.smoothing = Number(e.target.value) / 100;
       $('br-smooth-out').textContent = Stabilizer.label(E.settings.smoothing);
       saveSettings();
+      drawStabilizerPreview();
+    });
+    $('br-corners').addEventListener('change', (e) => {
+      E.settings.sharpCorners = e.target.checked;
+      saveSettings();
+      drawStabilizerPreview();
+    });
+    $('br-test').addEventListener('click', async () => {
+      const picked = await Gale.stabilizer.openTest({ adaptive: E.settings.sharpCorners });
+      if (!picked) return;
+      E.settings.smoothing = picked.amount;
+      E.settings.calibration = picked.result;
+      saveSettings();
+      refreshBrush();
+      toast(`Smoothing set to ${Stabilizer.label(picked.amount)} for your hand`);
     });
 
     $('layer-opacity').addEventListener('input', (e) => {

@@ -51,7 +51,8 @@ struct EditorView: View {
     private var canvasState: CanvasState {
         CanvasState(project: document.project, frameIndex: min(document.currentFrame, document.project.frames.count - 1),
                     layerID: document.currentLayerID, onion: model.onion, tool: model.tool, brush: model.brush,
-                    smoothing: model.smoothing, fingerDraws: model.fingerDraws, selection: model.selection,
+                    smoothing: model.smoothing, sharpCorners: model.sharpCorners, fingerDraws: model.fingerDraws,
+                    selection: model.selection,
                     hairSide: model.hairSide, fillGap: model.fillGapClose)
     }
 
@@ -118,6 +119,17 @@ struct EditorView: View {
         }
         .sheet(isPresented: $showExport) {
             ExportSheet(document: document)
+        }
+        .fullScreenCover(isPresented: $model.showStabilizerTest) {
+            // Full screen, not a sheet: a sheet's swipe-to-close would steal your tracing strokes.
+            StabilizerCalibrationView(model: model)
+        }
+        .onChange(of: model.stabilizerTestRequested) { _, asked in
+            // Close brush settings first, then open the test once the popup has gone.
+            guard asked else { return }
+            model.stabilizerTestRequested = false
+            showBrush = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.showStabilizerTest = true }
         }
         .sheet(isPresented: $showSettings) {
             EditorSettingsSheet(document: document, model: model)
@@ -289,7 +301,7 @@ struct ToolBar: View {
                 // A Form has no natural height, so a popover would shrink it to one row.
                 // Give it a real size so every setting shows.
                 BrushPanel(model: model)
-                    .frame(minWidth: 320, idealWidth: 340, minHeight: model.tool == .eraser ? 260 : 480, idealHeight: model.tool == .eraser ? 300 : 560)
+                    .frame(minWidth: 340, idealWidth: 380, minHeight: model.tool == .eraser ? 460 : 560, idealHeight: model.tool == .eraser ? 560 : 760)
                     .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
             }
@@ -355,22 +367,7 @@ struct BrushPanel: View {
                     }
                 }
             }
-            Section {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Text("Smoothing")
-                        Spacer()
-                        Button("Reset") { model.smoothing = StrokeSmoothing.defaultAmount }
-                            .font(.footnote)
-                            .buttonStyle(.borderless)
-                            .disabled(abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
-                            .accessibilityIdentifier("smoothingReset")
-                    }
-                    SmoothingControl(value: $model.smoothing, compact: false)
-                }
-            } footer: {
-                Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Corners and small strokes like eyes keep their shape either way.")
-            }
+            StabilizerSection(model: model)
         }
     }
 }
