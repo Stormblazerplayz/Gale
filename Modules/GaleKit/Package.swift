@@ -12,7 +12,8 @@ let package = Package(
     products: [
         .library(name: "GaleFormat", targets: ["GaleFormat"]),
         .library(name: "GaleCore", targets: ["GaleCore"]),
-        .library(name: "GaleSync", targets: ["GaleSync"])
+        .library(name: "GaleSync", targets: ["GaleSync"]),
+        .library(name: "GalePixel", targets: ["GalePixel"])
     ],
     targets: [
         // The file format: projects, layers, frames, strokes, loops, stash, movie tracks.
@@ -22,8 +23,11 @@ let package = Package(
         .target(name: "GaleCore", dependencies: ["GaleFormat"], path: "Sources/GaleCore"),
         // Live sync: clock, last-writer-wins replica, project <-> objects, pairing messages.
         .target(name: "GaleSync", dependencies: ["GaleFormat"], path: "Sources/GaleSync"),
+        // Pixel storytime: pixel tools, onion skin, story timing, chunky font, speech bubbles, GIF and sprite sheets.
+        .target(name: "GalePixel", dependencies: ["GaleFormat"], path: "Sources/GalePixel"),
         .testTarget(name: "GaleFormatTests", dependencies: ["GaleFormat"], path: "Tests/GaleFormatTests"),
         .testTarget(name: "GaleCoreTests", dependencies: ["GaleCore", "GaleFormat"], path: "Tests/GaleCoreTests"),
-        .testTarget(name: "GaleSyncTests", dependencies: ["GaleSync", "GaleFormat"], path: "Tests/GaleSyncTests")
+        .testTarget(name: "GaleSyncTests", dependencies: ["GaleSync", "GaleFormat"], path: "Tests/GaleSyncTests"),
+        .testTarget(name: "GalePixelTests", dependencies: ["GalePixel", "GaleFormat", "GaleSync"], path: "Tests/GalePixelTests")
     ]
 )
