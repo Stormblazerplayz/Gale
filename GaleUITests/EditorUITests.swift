@@ -187,7 +187,11 @@ final class EditorUITests: XCTestCase {
         XCTAssertGreaterThan(offBend, bend, "With smoothing off the shake should stay (\(offBend)° vs \(bend)° smoothed)")
         app.buttons["Undo"].tap()
         waitForValue(canvas, contains: "strokes 2,", "Undo the unsmoothed wave")
-        smoothing.adjust(toNormalizedSliderPosition: 0.25)
+        // Drag the knob the way a finger does: hold it, then slide it slowly. A quick synthesized drag can be
+        // lost while the app is still busy redrawing after the undo, and the slider then never moves.
+        let knob = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 16, dy: 0))
+        let target = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        knob.press(forDuration: 0.4, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.3)
         waitForValue(smoothing, notContaining: ["Off"], "Dragging the slider should turn smoothing back on")
 
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
