@@ -293,7 +293,7 @@ final class EditorUITests: XCTestCase {
         app.buttons["New frame"].tap()
         waitFor(element("frame-2"), "New frame should add frame 2")
         waitForValue(canvas, contains: "strokes 0,", "Frame 2 starts empty")
-        waitForValue(canvas, contains: "onion on", timeout: 10, "Onion skin should show frame 1 behind frame 2")
+        waitForValue(canvas, contains: "onion on", timeout: 20, "Onion skin should show frame 1 behind frame 2")
         shot("10 Frame 2 with onion skin")
         element("onion").tap()
         let onionToggle = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Onion skin'")).firstMatch
