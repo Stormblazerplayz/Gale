@@ -215,17 +215,12 @@ struct LearnCourseCard: View {
 
     private var total: Int { course.lessons.count }
     private var finished: Bool { total > 0 && done >= total }
+    private var look: LearnCourseLook { LearnCourseStyle.look(for: course.id) }
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Theme.accent.opacity(0.14))
-                Image(systemName: course.symbol)
-                    .font(.title2)
-                    .foregroundStyle(Theme.accent)
-            }
-            .frame(width: 52, height: 52)
+            LearnCoursePreview(course: course)
+                .frame(width: 112, height: 86)
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline) {
@@ -242,7 +237,7 @@ struct LearnCourseCard: View {
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 ProgressView(value: Double(min(done, total)), total: Double(max(1, total)))
-                    .tint(Theme.accent)
+                    .tint(look.color)
                 HStack {
                     Text("\(done) of \(total) lessons")
                     Spacer()
@@ -261,7 +256,19 @@ struct LearnCourseCard: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(.secondarySystemGroupedBackground))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(LinearGradient(colors: [look.color.opacity(0.16), look.color.opacity(0.02)],
+                                             startPoint: .topLeading, endPoint: .bottomTrailing))
+                )
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(look.color.opacity(0.25), lineWidth: 1)
+        )
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Opens the course")
@@ -312,14 +319,13 @@ struct LearnCourseView: View {
 
     private func content(_ course: LearnCourse) -> some View {
         let missing = store.missingCourses(for: course)
+        let look = LearnCourseStyle.look(for: course.id)
+        let states = LearnCourseStyle.pathStates(lessonIDs: course.lessons.map(\.id)) { store.progress.isCompleted($0) }
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: course.symbol)
-                        .font(.system(size: 30))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 60, height: 60)
-                        .background(Theme.accent.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                HStack(alignment: .top, spacing: 16) {
+                    LearnCoursePreview(course: course)
+                        .frame(width: 150, height: 114)
                     VStack(alignment: .leading, spacing: 6) {
                         Text(course.title)
                             .font(.title.weight(.bold))
@@ -329,7 +335,7 @@ struct LearnCourseView: View {
                             .fixedSize(horizontal: false, vertical: true)
                         let done = store.progress.completedCount(in: course)
                         ProgressView(value: Double(min(done, course.lessons.count)), total: Double(max(1, course.lessons.count)))
-                            .tint(Theme.accent)
+                            .tint(look.color)
                             .padding(.top, 4)
                         Text("\(done) of \(course.lessons.count) lessons done")
                             .font(.caption)
@@ -342,15 +348,19 @@ struct LearnCourseView: View {
                         .font(.subheadline)
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(look.color.opacity(0.1), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                VStack(spacing: 10) {
+                // The lessons as a path: done ones joined by a solid line, the next one pulsing.
+                VStack(spacing: 0) {
                     ForEach(Array(course.lessons.enumerated()), id: \.element.id) { i, lesson in
                         Button {
                             playing = lesson
                         } label: {
-                            LearnLessonRow(number: i + 1, lesson: lesson, done: store.isDone(lesson),
-                                           stars: store.stars(for: lesson))
+                            LearnLessonPathRow(
+                                number: i + 1, lesson: lesson, state: states[i], stars: store.stars(for: lesson),
+                                look: look,
+                                above: i == 0 ? .hidden : (states[i - 1] == .done ? .done : .todo),
+                                below: i == course.lessons.count - 1 ? .hidden : (states[i] == .done ? .done : .todo))
                         }
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("learnLesson-\(lesson.id)")
@@ -361,54 +371,5 @@ struct LearnCourseView: View {
             .frame(maxWidth: 820)
             .frame(maxWidth: .infinity)
         }
-    }
-}
-
-struct LearnLessonRow: View {
-    let number: Int
-    let lesson: LearnLesson
-    let done: Bool
-    let stars: Int
-
-    var body: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(done ? Color.green.opacity(0.16) : Theme.accent.opacity(0.14))
-                if done {
-                    Image(systemName: "checkmark").font(.headline).foregroundStyle(.green)
-                } else {
-                    Text("\(number)").font(.headline.monospacedDigit()).foregroundStyle(Theme.accent)
-                }
-            }
-            .frame(width: 40, height: 40)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(lesson.title)
-                    .font(.headline)
-                    .foregroundStyle(Color.primary)
-                Text(lesson.summary)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 10) {
-                    Label("\(lesson.minutes) min", systemImage: "clock")
-                    Label("\(lesson.steps.count) steps", systemImage: "list.bullet")
-                    if done { LearnStarsView(count: stars, size: 11) }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            Image(systemName: "chevron.right")
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(14)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Starts the lesson")
     }
 }

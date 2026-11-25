@@ -26,6 +26,17 @@ final class LearnNarrator: NSObject, ObservableObject {
     @Published var captionsOn: Bool {
         didSet { UserDefaults.standard.set(captionsOn, forKey: Self.captionsKey) }
     }
+    /// The voice the learner picked (nil = the most natural one on this device).
+    @Published var voiceID: String? {
+        didSet {
+            if let voiceID {
+                UserDefaults.standard.set(voiceID, forKey: Self.voiceIDKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: Self.voiceIDKey)
+            }
+            voiceResolved = false
+        }
+    }
     /// The line on screen now ("" when quiet).
     @Published private(set) var caption = ""
     /// Which word of the caption is being said (nil when the voice is off).
@@ -35,6 +46,7 @@ final class LearnNarrator: NSObject, ObservableObject {
 
     static let voiceKey = "learn.voiceOn"
     static let captionsKey = "learn.captionsOn"
+    static let voiceIDKey = "learn.voiceID"
 
     private let synth = AVSpeechSynthesizer()
     private var queue: [String] = []
@@ -45,13 +57,25 @@ final class LearnNarrator: NSObject, ObservableObject {
     private(set) var generation = 0
     private var timer: Task<Void, Never>?
     private var lastLines: [String] = []
-    private lazy var voice: AVSpeechSynthesisVoice? = LearnNarrator.bestVoice()
+    private var resolvedVoice: AVSpeechSynthesisVoice?
+    private var voiceResolved = false
+    /// Looked up the first time it's needed (listing voices takes a moment), and again after a new pick.
+    private var voice: AVSpeechSynthesisVoice? {
+        if !voiceResolved {
+            resolvedVoice = Self.bestVoice(picked: voiceID)
+            voiceResolved = true
+        }
+        return resolvedVoice
+    }
+    /// The name of the voice lessons are spoken in.
+    var voiceName: String { voice?.name ?? "The iPad's voice" }
 
     override init() {
         let d = UserDefaults.standard
         // UI tests run silently; captions still work.
         _voiceOn = Published(initialValue: UITestMode.on ? false : (d.object(forKey: Self.voiceKey) as? Bool ?? true))
         _captionsOn = Published(initialValue: d.object(forKey: Self.captionsKey) as? Bool ?? true)
+        _voiceID = Published(initialValue: d.string(forKey: Self.voiceIDKey))
         super.init()
         synth.delegate = self
     }
@@ -75,12 +99,17 @@ final class LearnNarrator: NSObject, ObservableObject {
         isTalking = true
         if voiceOn {
             activateAudio()
-            for line in clean {
+            let chosen = voice
+            for (i, line) in clean.enumerated() {
+                // Each line gets its own pace: short lines slower, questions lifted, real pauses between sentences.
+                let pace = LearnNarration.pacing(for: line, index: i, count: clean.count)
                 let u = AVSpeechUtterance(string: LearnNarration.speechText(line))
-                u.voice = voice
-                u.rate = AVSpeechUtteranceDefaultSpeechRate * 0.96
-                u.pitchMultiplier = 1.04
-                u.postUtteranceDelay = 0.18
+                u.voice = chosen
+                let rate = Float(Double(AVSpeechUtteranceDefaultSpeechRate) * pace.rate)
+                u.rate = min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, rate))
+                u.pitchMultiplier = Float(pace.pitch)
+                u.preUtteranceDelay = pace.preDelay
+                u.postUtteranceDelay = pace.postDelay
                 synth.speak(u)
             }
             show(0)
@@ -157,24 +186,40 @@ final class LearnNarrator: NSObject, ObservableObject {
         try? AVAudioSession.sharedInstance().setActive(false, options: [.notifyOthersOnDeactivation])
     }
 
-    /// The nicest English voice on this device (premium, then enhanced, then the default one).
-    static func bestVoice() -> AVSpeechSynthesisVoice? {
-        let current = AVSpeechSynthesisVoice.currentLanguageCode()
-        let wantEnglish = current.hasPrefix("en") ? current : "en-US"
-        let all = AVSpeechSynthesisVoice.speechVoices().filter { $0.language.hasPrefix("en") }
-        func rank(_ v: AVSpeechSynthesisVoice) -> Int {
-            var r = 0
+    /// Says a short line in the current voice, so the learner can hear what it sounds like.
+    func sample() {
+        if !voiceOn { voiceOn = true }
+        speak(["Hi! This is how your lessons will sound.", "Ready to animate something awesome?"])
+    }
+
+    /// The English language the device would rather hear.
+    static var preferredLanguage: String {
+        LearnVoiceChoice.preferredLanguage(deviceLanguage: AVSpeechSynthesisVoice.currentLanguageCode())
+    }
+
+    /// Every voice on the device, described for `LearnVoiceChoice`.
+    static func voiceCandidates() -> [LearnVoiceCandidate] {
+        AVSpeechSynthesisVoice.speechVoices().map { v in
+            let quality: LearnVoiceCandidate.Quality
             switch v.quality {
-            case .premium: r += 20
-            case .enhanced: r += 10
-            default: break
+            case .premium: quality = .premium
+            case .enhanced: quality = .enhanced
+            default: quality = .standard
             }
-            if v.language == wantEnglish { r += 5 }
-            // Novelty voices are fun but hard to learn from.
-            if v.voiceTraits.contains(.isNoveltyVoice) { r -= 100 }
-            return r
+            return LearnVoiceCandidate(id: v.identifier, name: v.name, language: v.language, quality: quality,
+                                       isNovelty: v.voiceTraits.contains(.isNoveltyVoice))
         }
-        return all.max { rank($0) < rank($1) } ?? AVSpeechSynthesisVoice(language: wantEnglish)
+    }
+
+    /// The learner's pick if it's still installed, otherwise the most natural English voice on this device
+    /// (premium, then enhanced; novelty and robotic voices last).
+    static func bestVoice(picked: String? = nil) -> AVSpeechSynthesisVoice? {
+        let language = preferredLanguage
+        if let best = LearnVoiceChoice.best(voiceCandidates(), preferredLanguage: language, picked: picked),
+           let v = AVSpeechSynthesisVoice(identifier: best.id) {
+            return v
+        }
+        return AVSpeechSynthesisVoice(language: language)
     }
 }
 
@@ -226,6 +271,7 @@ struct LearnCaptionBar: View {
     @ObservedObject var narrator: LearnNarrator
     /// Says the step again from the start.
     let onReplay: () -> Void
+    @State private var pickingVoice = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
@@ -269,6 +315,17 @@ struct LearnCaptionBar: View {
                     .frame(width: 34, height: 34)
             }
             .accessibilityLabel(narrator.captionsOn ? "Hide captions" : "Show captions")
+            Button {
+                pickingVoice = true
+            } label: {
+                Image(systemName: "person.wave.2")
+                    .frame(width: 34, height: 34)
+            }
+            .accessibilityLabel("Choose the lesson voice")
+            .accessibilityIdentifier("learnVoicePicker")
+        }
+        .sheet(isPresented: $pickingVoice) {
+            LearnVoicePicker(narrator: narrator)
         }
         .buttonStyle(.plain)
         .foregroundStyle(Theme.accent)
@@ -294,5 +351,91 @@ struct LearnCaptionBar: View {
         word.foregroundColor = Theme.accent
         word.font = .callout.weight(.bold)
         return AttributedString(String(line[..<sLo])) + word + AttributedString(String(line[sHi...]))
+    }
+}
+
+// MARK: - Voice picker
+
+/// Pick the voice lessons are spoken in. Tapping a voice plays a sample.
+struct LearnVoicePicker: View {
+    @ObservedObject var narrator: LearnNarrator
+    @Environment(\.dismiss) private var dismiss
+    @State private var voices: [LearnVoiceCandidate] = []
+
+    private var ranked: [LearnVoiceCandidate] {
+        LearnVoiceChoice.ranked(voices, preferredLanguage: LearnNarrator.preferredLanguage)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        narrator.voiceID = nil
+                        narrator.sample()
+                    } label: {
+                        row(title: "Most natural voice", detail: "Picks the best one on this iPad",
+                            selected: narrator.voiceID == nil)
+                    }
+                    ForEach(ranked, id: \.id) { v in
+                        Button {
+                            narrator.voiceID = v.id
+                            narrator.sample()
+                        } label: {
+                            row(title: v.name, detail: detail(for: v), selected: narrator.voiceID == v.id)
+                        }
+                    }
+                } footer: {
+                    Text("Tap a voice to hear it. Now speaking: \(narrator.voiceName).")
+                }
+                Section {
+                    Label {
+                        Text("For the most human-sounding voice, open Settings, then Accessibility, Spoken Content, "
+                             + "Voices, English. Download a voice marked Premium or Enhanced, like Ava or Zoe, "
+                             + "then pick it here.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    } icon: {
+                        Image(systemName: "arrow.down.circle").foregroundStyle(Theme.accent)
+                    }
+                    .font(.footnote)
+                } header: {
+                    Text(LearnVoiceChoice.shouldSuggestDownload(voices) ? "Get a better voice" : "More voices")
+                }
+            }
+            .navigationTitle("Lesson voice")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
+        .tint(Theme.accent)
+        .onAppear { voices = LearnNarrator.voiceCandidates() }
+    }
+
+    private func row(title: String, detail: String, selected: Bool) -> some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).foregroundStyle(Color.primary)
+                Text(detail).font(.caption).foregroundStyle(.secondary)
+            }
+            Spacer()
+            if selected {
+                Image(systemName: "checkmark").foregroundStyle(Theme.accent)
+            }
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func detail(for v: LearnVoiceCandidate) -> String {
+        let quality: String
+        switch v.quality {
+        case .premium: quality = "Premium"
+        case .enhanced: quality = "Enhanced"
+        case .standard: quality = "Standard"
+        }
+        let language = Locale.current.localizedString(forIdentifier: v.language) ?? v.language
+        return "\(quality) · \(language)"
     }
 }

@@ -42,6 +42,19 @@ final class EditorUITests: XCTestCase {
         XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
     }
 
+    /// Waits until the element's value contains none of `texts`.
+    func waitForValue(_ e: XCUIElement, notContaining texts: [String], timeout: TimeInterval = 10, _ message: String) {
+        let p = NSPredicate { obj, _ in
+            guard let el = obj as? XCUIElement, el.exists else { return false }
+            let v = el.value as? String ?? ""
+            return !texts.contains { v.contains($0) }
+        }
+        let exp = XCTNSPredicateExpectation(predicate: p, object: e)
+        let result = XCTWaiter().wait(for: [exp], timeout: timeout)
+        let now = e.exists ? (e.value as? String ?? "nil") : "the element is gone"
+        XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
+    }
+
     /// Waits until a number in the canvas description passes a check, and returns it.
     @discardableResult
     func waitForNumber(_ key: String, timeout: TimeInterval = 10, _ message: String, _ ok: (Int) -> Bool) -> Int {
@@ -174,8 +187,12 @@ final class EditorUITests: XCTestCase {
         XCTAssertGreaterThan(offBend, bend, "With smoothing off the shake should stay (\(offBend)° vs \(bend)° smoothed)")
         app.buttons["Undo"].tap()
         waitForValue(canvas, contains: "strokes 2,", "Undo the unsmoothed wave")
-        smoothing.adjust(toNormalizedSliderPosition: 0.25)
-        XCTAssertFalse((smoothing.value as? String ?? "Off").contains("Off"), "Dragging the slider should turn smoothing back on")
+        // Drag the knob the way a finger does: hold it, then slide it slowly. A quick synthesized drag can be
+        // lost while the app is still busy redrawing after the undo, and the slider then never moves.
+        let knob = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0.5)).withOffset(CGVector(dx: 16, dy: 0))
+        let target = smoothing.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.5))
+        knob.press(forDuration: 0.4, thenDragTo: target, withVelocity: .slow, thenHoldForDuration: 0.3)
+        waitForValue(smoothing, notContaining: ["Off"], "Dragging the slider should turn smoothing back on")
 
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
         element("tool-select").tap()

@@ -20,6 +20,7 @@ import courses_principles  # noqa: E402
 import courses_motion  # noqa: E402
 import courses_3d  # noqa: E402
 import courses_pro  # noqa: E402
+import courses_acting  # noqa: E402
 
 OUT = os.path.join(HERE, "..", "Sources", "GaleLearn", "Resources", "Courses")
 
@@ -27,11 +28,11 @@ TRACKS = [
     {
         "id": "animation",
         "title": "2D Animation",
-        "subtitle": "From your first line to walk cycles, acting and effects",
+        "subtitle": "From your first line to walk cycles, acting, lip sync and effects",
         "symbol": "figure.walk.motion",
         "builders": [courses_pro.pro, courses_basics.basics, courses_basics.tools, courses_principles.principles,
-                     courses_motion.ball_course, courses_motion.walk, courses_motion.run, courses_motion.acting,
-                     courses_motion.effects, courses_motion.hair],
+                     courses_motion.ball_course, courses_motion.walk, courses_motion.run, courses_acting.acting,
+                     courses_acting.lipsync, courses_motion.effects, courses_acting.hair],
     },
     {
         "id": "3d",
