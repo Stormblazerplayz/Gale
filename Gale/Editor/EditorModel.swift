@@ -63,9 +63,11 @@ final class EditorModel: ObservableObject {
     var drawingSmoothing: Double { StrokeSmoothing.amount(smoothing, faceMode: faceMode) }
 
     /// Sets the slider. Moving the slider means you want smoothing, so it leaves Face mode.
+    /// Only writes what changed, so dragging the slider doesn't save the settings twice for every touch.
     func setSmoothing(_ value: Double) {
-        faceMode = false
-        smoothing = min(1, max(0, value))
+        if faceMode { faceMode = false }
+        let v = min(1, max(0, value))
+        if v != smoothing { smoothing = v }
     }
 
     var brush: Brush {

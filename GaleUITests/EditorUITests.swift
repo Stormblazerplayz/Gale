@@ -42,6 +42,19 @@ final class EditorUITests: XCTestCase {
         XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
     }
 
+    /// Waits until the element's value contains none of `texts`.
+    func waitForValue(_ e: XCUIElement, notContaining texts: [String], timeout: TimeInterval = 10, _ message: String) {
+        let p = NSPredicate { obj, _ in
+            guard let el = obj as? XCUIElement, el.exists else { return false }
+            let v = el.value as? String ?? ""
+            return !texts.contains { v.contains($0) }
+        }
+        let exp = XCTNSPredicateExpectation(predicate: p, object: e)
+        let result = XCTWaiter().wait(for: [exp], timeout: timeout)
+        let now = e.exists ? (e.value as? String ?? "nil") : "the element is gone"
+        XCTAssertEqual(result, .completed, "\(message) (value was: \(now))")
+    }
+
     /// Waits until a number in the canvas description passes a check, and returns it.
     @discardableResult
     func waitForNumber(_ key: String, timeout: TimeInterval = 10, _ message: String, _ ok: (Int) -> Bool) -> Int {
@@ -175,7 +188,7 @@ final class EditorUITests: XCTestCase {
         app.buttons["Undo"].tap()
         waitForValue(canvas, contains: "strokes 2,", "Undo the unsmoothed wave")
         smoothing.adjust(toNormalizedSliderPosition: 0.25)
-        XCTAssertFalse((smoothing.value as? String ?? "Off").contains("Off"), "Dragging the slider should turn smoothing back on")
+        waitForValue(smoothing, notContaining: ["Off"], "Dragging the slider should turn smoothing back on")
 
         // 5c. Face mode: one tap turns smoothing off for details, one more tap brings the slider back.
         let faceMode = waitFor(element("faceMode"), "The Face mode button should be on the toolbar")
@@ -192,8 +205,7 @@ final class EditorUITests: XCTestCase {
         waitForValue(canvas, contains: "strokes 2,", "Undo the Face mode wave")
         faceMode.tap()
         waitForValue(faceMode, contains: "off", "Tapping Face mode again should turn it off")
-        let back = smoothing.value as? String ?? ""
-        XCTAssertFalse(back.contains("Face") || back.contains("Off"), "Turning Face mode off should bring the slider setting back, got \(back)")
+        waitForValue(smoothing, notContaining: ["Face", "Off"], "Turning Face mode off should bring the slider setting back")
 
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
         element("tool-select").tap()
