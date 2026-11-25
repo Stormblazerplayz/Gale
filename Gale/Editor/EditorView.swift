@@ -120,6 +120,17 @@ struct EditorView: View {
         .sheet(isPresented: $showExport) {
             ExportSheet(document: document)
         }
+        .sheet(isPresented: $model.showStabilizerTest) {
+            StabilizerCalibrationView(model: model)
+                .presentationDetents([.large])
+        }
+        .onChange(of: model.stabilizerTestRequested) { _, asked in
+            // Close brush settings first, then open the test once the popup has gone.
+            guard asked else { return }
+            model.stabilizerTestRequested = false
+            showBrush = false
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { model.showStabilizerTest = true }
+        }
         .sheet(isPresented: $showSettings) {
             EditorSettingsSheet(document: document, model: model)
         }

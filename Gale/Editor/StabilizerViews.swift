@@ -8,7 +8,6 @@ import UIKit
 /// Smoothing strength, "Keep corners sharp", a before and after of your last line, and the stabilizer test.
 struct StabilizerSection: View {
     @ObservedObject var model: EditorModel
-    @State private var showTest = false
 
     var body: some View {
         Section {
@@ -48,7 +47,7 @@ struct StabilizerSection: View {
             .tint(Theme.accent)
             .accessibilityIdentifier("sharpCorners")
 
-            Button { showTest = true } label: {
+            Button { model.stabilizerTestRequested = true } label: {
                 HStack(spacing: 12) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -74,9 +73,6 @@ struct StabilizerSection: View {
             .accessibilityIdentifier("stabilizerTest")
         } footer: {
             Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Small strokes like eyes keep their shape either way.")
-        }
-        .sheet(isPresented: $showTest) {
-            StabilizerCalibrationView(model: model)
         }
     }
 }

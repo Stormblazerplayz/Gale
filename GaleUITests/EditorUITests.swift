@@ -212,6 +212,8 @@ final class EditorUITests: XCTestCase {
         waitFor(element("calibrationLevel"), "The result should say how steady the hand is")
         shot("05c Stabilizer result")
         use.tap()
+        XCTAssertTrue(element("useCalibration").waitForNonExistence(timeout: 5), "Using the result should close the test")
+        element("brushSize").tap()
         waitFor(element("tunedBadge"), "Using the result should mark smoothing as tuned to your hand")
         tapAway()
         XCTAssertTrue(app.staticTexts["Smoothing"].waitForNonExistence(timeout: 5), "Brush settings should close")
