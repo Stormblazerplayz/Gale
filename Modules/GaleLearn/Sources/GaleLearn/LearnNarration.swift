@@ -14,6 +14,16 @@ public enum LearnNarration {
     /// - Quizzes read the question, then each choice with its letter.
     /// - Everything else reads the title, then the text one sentence at a time.
     public static func lines(for step: LearnStep) -> [String] {
+        var out = baseLines(for: step)
+        // Animate steps that talk you through each frame say how to hear it.
+        if step.kind == .animate && !step.tips.isEmpty { out.append(tapFrameLine) }
+        return out
+    }
+
+    /// Said at the end of an animate step's opening, when it has frame tips.
+    public static let tapFrameLine = "Tap any frame to hear what to draw on it."
+
+    private static func baseLines(for step: LearnStep) -> [String] {
         if !step.say.isEmpty { return step.say.map(clean).filter { !$0.isEmpty } }
         switch step.kind {
         case .watch:
@@ -45,6 +55,62 @@ public enum LearnNarration {
         }
         var seen = Set<String>()
         return out.filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+
+    /// What the narrator says for one frame of an "animate it" step: "Frame 3 of 10." then that frame's tip.
+    /// Empty when the step has no tip for that frame.
+    public static func tipLines(for step: LearnStep, frame: Int) -> [String] {
+        guard step.tips.indices.contains(frame) else { return [] }
+        let tip = clean(step.tips[frame])
+        guard !tip.isEmpty else { return [] }
+        return ["Frame \(frame + 1) of \(step.tips.count).", endSentence(tip)]
+    }
+
+    /// The whole plan for an "animate it" step, frame by frame, so the learner can hear it before drawing.
+    public static func planLines(for step: LearnStep) -> [String] {
+        let tips = step.tips.map(clean).filter { !$0.isEmpty }
+        guard !tips.isEmpty else { return [] }
+        var out = ["Here's the plan, \(tips.count) frames."]
+        for i in step.tips.indices {
+            let tip = clean(step.tips[i])
+            if !tip.isEmpty { out.append("Frame \(i + 1). \(endSentence(tip))") }
+        }
+        out.append("Now open it in Gale and draw it, one frame at a time.")
+        return out
+    }
+
+    // MARK: Pacing
+
+    /// How to say one line so it sounds like a person, not a robot: a little slower on short lines,
+    /// a lift on questions, and a real pause after each sentence (longer after a question, so you can think).
+    public static func pacing(for line: String, index: Int, count: Int) -> LearnSpeechPacing {
+        let text = clean(line)
+        let words = wordRanges(in: text).count
+        var rate = 0.94
+        var pitch = 1.0
+        if words <= 4 { rate = 0.88 } else if words >= 22 { rate = 0.92 }
+        let end = text.last(where: { !"\"')\u{201D}\u{2019}".contains($0) })
+        var post: Double
+        switch end {
+        case "?":
+            pitch = 1.03
+            post = 0.5
+        case "!":
+            rate += 0.03
+            pitch = 1.02
+            post = 0.38
+        case ".":
+            post = 0.32
+        case ":", ";", ",":
+            post = 0.22
+        default:
+            post = 0.2
+        }
+        if words <= 4 { post += 0.1 }
+        let isLast = index >= count - 1
+        if isLast { post = 0.08 }
+        let pre = index == 0 ? 0.05 : 0.0
+        return LearnSpeechPacing(rate: min(1.1, max(0.8, rate)), pitch: pitch, preDelay: pre, postDelay: post)
     }
 
     /// "A", "B", "C" ...
@@ -179,5 +245,21 @@ public enum LearnNarration {
         // Different word counts (like "&" → "and"): keep the same share of the way through.
         let share = Double(i) / Double(max(1, spokenWords.count - 1))
         return min(shownWords.count - 1, Int((share * Double(shownWords.count - 1)).rounded()))
+    }
+}
+
+
+/// How one line is spoken. `rate` multiplies the device's normal speaking rate.
+public struct LearnSpeechPacing: Equatable, Sendable {
+    public var rate: Double
+    public var pitch: Double
+    public var preDelay: Double
+    public var postDelay: Double
+
+    public init(rate: Double, pitch: Double, preDelay: Double, postDelay: Double) {
+        self.rate = rate
+        self.pitch = pitch
+        self.preDelay = preDelay
+        self.postDelay = postDelay
     }
 }

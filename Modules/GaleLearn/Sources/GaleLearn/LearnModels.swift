@@ -406,10 +406,12 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
     public var say: [String]
     /// Watch steps: the narrated beats, in order.
     public var beats: [LearnBeat]
+    /// Animate steps: one spoken tip per guide frame, saying what to draw on that frame.
+    public var tips: [String]
 
     public init(id: String, kind: LearnStepKind, title: String, text: String, hint: String? = nil,
                 guide: LearnGuide? = nil, checks: [LearnCheck] = [], quiz: LearnQuiz? = nil, tool: LearnToolTask? = nil,
-                say: [String] = [], beats: [LearnBeat] = []) {
+                say: [String] = [], beats: [LearnBeat] = [], tips: [String] = []) {
         self.id = id
         self.kind = kind
         self.title = title
@@ -421,12 +423,13 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
         self.tool = tool
         self.say = say
         self.beats = beats
+        self.tips = tips
     }
 
     /// The trace check, if there is one.
     public var traceCheck: LearnCheck? { checks.first { $0.type == .trace } }
 
-    enum CodingKeys: String, CodingKey { case id, kind, title, text, hint, guide, checks, quiz, tool, say, beats }
+    enum CodingKeys: String, CodingKey { case id, kind, title, text, hint, guide, checks, quiz, tool, say, beats, tips }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -441,6 +444,7 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
         tool = try c.decodeIfPresent(LearnToolTask.self, forKey: .tool)
         say = try c.decodeIfPresent([String].self, forKey: .say) ?? []
         beats = try c.decodeIfPresent([LearnBeat].self, forKey: .beats) ?? []
+        tips = try c.decodeIfPresent([String].self, forKey: .tips) ?? []
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -456,6 +460,7 @@ public struct LearnStep: Codable, Hashable, Identifiable, Sendable {
         try c.encodeIfPresent(tool, forKey: .tool)
         if !say.isEmpty { try c.encode(say, forKey: .say) }
         if !beats.isEmpty { try c.encode(beats, forKey: .beats) }
+        if !tips.isEmpty { try c.encode(tips, forKey: .tips) }
     }
 }
 

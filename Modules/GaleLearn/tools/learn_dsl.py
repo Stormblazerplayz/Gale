@@ -12,6 +12,8 @@ DEFAULT_WIDTH = 0.012
 SIMPLIFY_TOL = 0.0005
 ACCURACY_SLACK = 1.25
 MAX_INK_RATIO = 2.5
+# One spoken line stays short enough to say in one breath (natural pacing, easy captions).
+MAX_SPOKEN_WORDS = 34
 
 
 # ---------------------------------------------------------------- guide data
@@ -168,9 +170,14 @@ def watch(title, text, guide, beats):
 
 
 def animate(title, text, frame_list, hint=None, checks=(), bg=None, fps=12, coverage=0.7, accuracy=0.7,
-            tolerance=0.05, loop=True, say=None):
-    """Animate it for real: the frames open in Gale's editor on a locked guide layer."""
+            tolerance=0.05, loop=True, say=None, tips=None):
+    """Animate it for real: the frames open in Gale's editor on a locked guide layer.
+
+    tips: one short spoken tip per frame ("what to draw on this frame"). The lesson reads them out
+    frame by frame, so the learner is talked through the whole animation step by step."""
     n = len(frame_list)
+    if tips is not None:
+        assert len(tips) == n, ("one tip per frame", title, len(tips), n)
     s = {"kind": "animate", "title": title, "text": text,
          "guide": G(frame_list, fps=fps, loop=loop, bg=bg),
          "checks": [chk_trace(coverage, accuracy, tolerance), chk_frames(n)] + list(checks)}
@@ -178,6 +185,8 @@ def animate(title, text, frame_list, hint=None, checks=(), bg=None, fps=12, cove
         s["hint"] = hint
     if say:
         s["say"] = list(say)
+    if tips:
+        s["tips"] = [t.strip() for t in tips]
     return s
 
 
@@ -187,7 +196,7 @@ MINUTES = {"read": 0.6, "trace": 1.0, "frames": 3.0, "quiz": 0.5, "tool": 2.0, "
 def lesson(lid, title, summary, steps):
     for i, s in enumerate(steps):
         s["id"] = "s%d" % (i + 1)
-    ordered = [{k: s[k] for k in ("id", "kind", "title", "text", "hint", "guide", "checks", "quiz", "tool", "say", "beats")
+    ordered = [{k: s[k] for k in ("id", "kind", "title", "text", "hint", "guide", "checks", "quiz", "tool", "say", "beats", "tips")
                 if k in s}
                for s in steps]
     minutes = max(2, int(math.ceil(sum(MINUTES[s["kind"]] for s in steps))))
@@ -398,11 +407,17 @@ def check_lesson(lesson_):
             assert 2 <= len(s["guide"]["frames"]) <= 12, (lesson_["id"], s["id"], "frame count")
         if s["kind"] == "animate":
             assert 2 <= len(s["guide"]["frames"]) <= 24, (lesson_["id"], s["id"], "frame count")
+        if "tips" in s:
+            assert s["kind"] == "animate", (lesson_["id"], s["id"], "only animate steps have tips")
+            assert len(s["tips"]) == len(s["guide"]["frames"]), (lesson_["id"], s["id"], "one tip per frame")
+            for t in s["tips"]:
+                assert t and len(t.split()) <= MAX_SPOKEN_WORDS, (lesson_["id"], s["id"], "tip length", t)
         if s["kind"] == "watch":
             nf = len(s["guide"]["frames"])
             assert 1 <= len(s["beats"]) <= 10 and not s.get("checks"), (lesson_["id"], s["id"], "beats")
             for b in s["beats"]:
                 assert b["say"].strip(), (lesson_["id"], s["id"], "empty beat")
+                assert len(b["say"].split()) <= MAX_SPOKEN_WORDS, (lesson_["id"], s["id"], "beat too long to say", b["say"])
                 assert 0 <= b["from"] <= b["to"] < nf, (lesson_["id"], s["id"], "beat range", b)
                 for o in b.get("show", []):
                     assert o in ("onion", "trail", "chart", "slow"), (lesson_["id"], s["id"], o)

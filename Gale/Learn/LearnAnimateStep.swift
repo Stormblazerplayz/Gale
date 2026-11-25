@@ -30,6 +30,11 @@ struct LearnAnimateStepView: View {
     @State private var error: String?
     @State private var confirmRestart = false
     @State private var showGuide = true
+    /// The frame whose tip is being said (nil when quiet), and the script it belongs to.
+    @State private var talkingFrame: Int?
+    @State private var talkingScript = -1
+    /// True while the whole plan is being said.
+    @State private var talkingPlan = false
 
     private var guide: LearnGuide? { step.guide }
     private var drawn: Int { studio.drawnCount(for: step) }
@@ -64,6 +69,9 @@ struct LearnAnimateStepView: View {
                     if hasProject {
                         Button("Start over with a fresh project") { confirmRestart = true }
                             .font(.footnote)
+                    }
+                    if !step.tips.isEmpty {
+                        framePlan(guide)
                     }
                     tips
                 }
@@ -136,24 +144,125 @@ struct LearnAnimateStepView: View {
             HStack(spacing: 8) {
                 ForEach(guide.frames.indices, id: \.self) { i in
                     let done = !frameInk(i).isEmpty
-                    VStack(spacing: 3) {
-                        LearnPaper(aspect: guide.aspect) {
-                            LearnStudioFrame(guide: guide, frame: i, ink: frameInk(i), showGuide: true, small: true)
+                    Button { sayTip(i) } label: {
+                        VStack(spacing: 3) {
+                            LearnPaper(aspect: guide.aspect) {
+                                LearnStudioFrame(guide: guide, frame: i, ink: frameInk(i), showGuide: true, small: true)
+                            }
+                            .frame(height: 54)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(Theme.accent, lineWidth: isSaying(i) ? 2.5 : 0)
+                            )
+                            HStack(spacing: 3) {
+                                Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(done ? Color.green : Color.secondary)
+                                Text("\(i + 1)").monospacedDigit()
+                            }
+                            .font(.caption2)
                         }
-                        .frame(height: 54)
-                        HStack(spacing: 3) {
-                            Image(systemName: done ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(done ? Color.green : Color.secondary)
-                            Text("\(i + 1)").monospacedDigit()
-                        }
-                        .font(.caption2)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(step.tips.isEmpty)
                     .accessibilityElement(children: .ignore)
                     .accessibilityLabel("Frame \(i + 1), \(done ? "drawn" : "not drawn yet")")
+                    .accessibilityHint(step.tips.isEmpty ? "" : "Says what to draw on this frame")
                 }
             }
             .padding(.horizontal, 2)
         }
+    }
+
+    /// What to draw on every frame, each one a tap away from being said out loud.
+    private func framePlan(_ guide: LearnGuide) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Label("Frame by frame", systemImage: "list.number")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    sayPlan()
+                } label: {
+                    Label(talkingPlan && narrator.isTalking ? "Stop" : "Hear the plan",
+                          systemImage: talkingPlan && narrator.isTalking ? "stop.fill" : "speaker.wave.2.fill")
+                        .font(.subheadline.weight(.semibold))
+                }
+                .buttonStyle(.bordered)
+                .tint(Theme.accent)
+                .accessibilityIdentifier("learnHearPlan")
+            }
+            ForEach(step.tips.indices, id: \.self) { i in
+                Button { sayTip(i) } label: {
+                    HStack(alignment: .top, spacing: 10) {
+                        Text("\(i + 1)")
+                            .font(.caption.weight(.bold).monospacedDigit())
+                            .foregroundStyle(isSaying(i) ? Color.white : Theme.accent)
+                            .frame(width: 24, height: 24)
+                            .background(isSaying(i) ? Theme.accent : Theme.accent.opacity(0.14), in: Circle())
+                        if guide.frames.indices.contains(i) {
+                            LearnPaper(aspect: guide.aspect) {
+                                LearnStudioFrame(guide: guide, frame: i, ink: frameInk(i), showGuide: true, small: true)
+                            }
+                            .frame(height: 40)
+                        }
+                        Text(step.tips[i])
+                            .font(.subheadline)
+                            .foregroundStyle(Color.primary)
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        Image(systemName: isSaying(i) ? "speaker.wave.2.fill" : "speaker.wave.1")
+                            .font(.footnote)
+                            .foregroundStyle(Theme.accent)
+                            .symbolEffect(.variableColor.iterative, isActive: isSaying(i))
+                    }
+                    .padding(8)
+                    .background(isSaying(i) ? Theme.accent.opacity(0.08) : Color.clear,
+                                in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Frame \(i + 1): \(step.tips[i])")
+                .accessibilityHint("Says it out loud")
+                .accessibilityIdentifier("learnFrameTip-\(i)")
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: 560, alignment: .leading)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .animation(.easeOut(duration: 0.15), value: talkingFrame)
+        .animation(.easeOut(duration: 0.15), value: narrator.caption)
+    }
+
+    private func isSaying(_ i: Int) -> Bool {
+        guard narrator.isTalking && narrator.generation == talkingScript else { return false }
+        // While the plan plays, light up the frame the voice is on ("Frame 3. ...").
+        if talkingPlan { return narrator.caption.hasPrefix("Frame \(i + 1). ") }
+        return talkingFrame == i
+    }
+
+    /// Says what to draw on one frame.
+    private func sayTip(_ i: Int) {
+        let lines = LearnNarration.tipLines(for: step, frame: i)
+        guard !lines.isEmpty else { return }
+        talkingPlan = false
+        talkingFrame = i
+        talkingScript = narrator.speak(lines) { talkingFrame = nil }
+    }
+
+    /// Says the whole plan, frame by frame (or stops it if it's already going).
+    private func sayPlan() {
+        if talkingPlan && narrator.isTalking {
+            narrator.stop()
+            talkingPlan = false
+            talkingFrame = nil
+            return
+        }
+        let lines = LearnNarration.planLines(for: step)
+        guard !lines.isEmpty else { return }
+        talkingFrame = nil
+        talkingPlan = true
+        talkingScript = narrator.speak(lines) { talkingPlan = false }
     }
 
     private var tips: some View {

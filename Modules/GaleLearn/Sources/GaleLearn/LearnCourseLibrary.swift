@@ -179,6 +179,13 @@ public struct LearnCourseLibrary: Hashable, Sendable {
                 p.append("\(at) has an empty spoken line.")
             }
             if s.kind != .watch && !s.beats.isEmpty { p.append("\(at): only watch steps have beats.") }
+            if !s.tips.isEmpty {
+                if s.kind != .animate { p.append("\(at): only animate steps have frame tips.") }
+                if s.tips.count != (s.guide?.frames.count ?? 0) { p.append("\(at) needs one tip per frame.") }
+                if s.tips.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                    p.append("\(at) has an empty frame tip.")
+                }
+            }
             for c in s.checks {
                 if c.type.needsFrames && !s.kind.drawsFrames { p.append("\(at): \(c.type.rawValue) check only works on frame steps.") }
                 p += problems(in: c, at: at, frameCount: s.guide?.frames.count ?? 0)
