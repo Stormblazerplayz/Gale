@@ -6,6 +6,10 @@ import GaleLearn
 struct LearnHomeView: View {
     @StateObject private var store = LearnStore()
     @State private var playing: LearnLesson?
+    // Passed into the full-screen lesson so "animate it" steps can open the real editor.
+    @EnvironmentObject private var projects: ProjectLibrary
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var sync: SyncManager
 
     var body: some View {
         Group {
@@ -24,6 +28,9 @@ struct LearnHomeView: View {
         .task { await store.load() }
         .fullScreenCover(item: $playing) { lesson in
             LearnLessonPlayer(store: store, lesson: lesson) { playing = nil }
+                .environmentObject(projects)
+                .environmentObject(libraryStore)
+                .environmentObject(sync)
         }
     }
 
@@ -189,10 +196,10 @@ struct LearnTrackSection: View {
                         LearnCourseCard(course: course,
                                         done: store.progress.completedCount(in: course),
                                         stars: course.lessons.reduce(0) { $0 + store.stars(for: $1) },
-                                        locked: !store.isUnlocked(course),
-                                        missing: store.missingCourses(for: course))
+                                        tip: store.missingCourses(for: course))
                     }
                     .buttonStyle(.plain)
+                    .accessibilityIdentifier("learnCourse-\(course.id)")
                 }
             }
         }
@@ -203,8 +210,8 @@ struct LearnCourseCard: View {
     let course: LearnCourse
     let done: Int
     let stars: Int
-    let locked: Bool
-    let missing: [String]
+    /// Courses that make this one easier, if they aren't done yet (a tip only: every course is open).
+    let tip: [String]
 
     private var total: Int { course.lessons.count }
     private var finished: Bool { total > 0 && done >= total }
@@ -213,10 +220,10 @@ struct LearnCourseCard: View {
         HStack(alignment: .top, spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(locked ? Color.secondary.opacity(0.12) : Theme.accent.opacity(0.14))
+                    .fill(Theme.accent.opacity(0.14))
                 Image(systemName: course.symbol)
                     .font(.title2)
-                    .foregroundStyle(locked ? Color.secondary : Theme.accent)
+                    .foregroundStyle(Theme.accent)
             }
             .frame(width: 52, height: 52)
 
@@ -225,9 +232,7 @@ struct LearnCourseCard: View {
                     Text(course.title)
                         .font(.headline)
                     Spacer(minLength: 4)
-                    if locked {
-                        Image(systemName: "lock.fill").foregroundStyle(.secondary)
-                    } else if finished {
+                    if finished {
                         Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)
                     }
                 }
@@ -236,22 +241,21 @@ struct LearnCourseCard: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
-                if locked && !missing.isEmpty {
-                    Text("Finish \(LearnWords.list(missing)) first. You can still peek.")
+                ProgressView(value: Double(min(done, total)), total: Double(max(1, total)))
+                    .tint(Theme.accent)
+                HStack {
+                    Text("\(done) of \(total) lessons")
+                    Spacer()
+                    Label("\(stars)", systemImage: "star.fill")
+                        .labelStyle(.titleAndIcon)
+                        .foregroundStyle(stars > 0 ? LearnStarsView.gold : Color.secondary)
+                }
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.secondary)
+                if !tip.isEmpty && done == 0 {
+                    Label("Easier after \(LearnWords.list(tip))", systemImage: "lightbulb")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } else {
-                    ProgressView(value: Double(min(done, total)), total: Double(max(1, total)))
-                        .tint(Theme.accent)
-                    HStack {
-                        Text("\(done) of \(total) lessons")
-                        Spacer()
-                        Label("\(stars)", systemImage: "star.fill")
-                            .labelStyle(.titleAndIcon)
-                            .foregroundStyle(stars > 0 ? LearnStarsView.gold : Color.secondary)
-                    }
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
                 }
             }
         }
@@ -260,7 +264,7 @@ struct LearnCourseCard: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityHint(locked ? "Locked. Opens a preview." : "Opens the course")
+        .accessibilityHint("Opens the course")
     }
 }
 
@@ -283,7 +287,9 @@ struct LearnCourseView: View {
     let courseID: String
 
     @State private var playing: LearnLesson?
-    @State private var askEarly: LearnLesson?
+    @EnvironmentObject private var projects: ProjectLibrary
+    @EnvironmentObject private var libraryStore: LibraryStore
+    @EnvironmentObject private var sync: SyncManager
 
     var body: some View {
         Group {
@@ -298,19 +304,13 @@ struct LearnCourseView: View {
         .background(Color(.systemGroupedBackground).ignoresSafeArea())
         .fullScreenCover(item: $playing) { lesson in
             LearnLessonPlayer(store: store, lesson: lesson) { playing = nil }
-        }
-        .confirmationDialog("Open this lesson early?",
-                            isPresented: Binding(get: { askEarly != nil }, set: { if !$0 { askEarly = nil } }),
-                            titleVisibility: .visible, presenting: askEarly) { lesson in
-            Button("Open anyway") { openLater(lesson) }
-            Button("Not now", role: .cancel) {}
-        } message: { _ in
-            Text("This lesson uses things from the lessons before it. It's easier if you do those first.")
+                .environmentObject(projects)
+                .environmentObject(libraryStore)
+                .environmentObject(sync)
         }
     }
 
     private func content(_ course: LearnCourse) -> some View {
-        let unlocked = store.isUnlocked(course)
         let missing = store.missingCourses(for: course)
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -336,38 +336,30 @@ struct LearnCourseView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                if !unlocked && !missing.isEmpty {
-                    Label("This course builds on \(LearnWords.list(missing)). You can look around, but it's easier after that.",
-                          systemImage: "lock.fill")
+                if !missing.isEmpty && store.progress.completedCount(in: course) == 0 {
+                    Label("Tip: this course is easier after \(LearnWords.list(missing)), but you can start right away.",
+                          systemImage: "lightbulb")
                         .font(.subheadline)
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .background(Theme.accent.opacity(0.08), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
                 VStack(spacing: 10) {
                     ForEach(Array(course.lessons.enumerated()), id: \.element.id) { i, lesson in
-                        let open = store.isUnlocked(lesson, in: course)
                         Button {
-                            if open { playing = lesson } else { askEarly = lesson }
+                            playing = lesson
                         } label: {
                             LearnLessonRow(number: i + 1, lesson: lesson, done: store.isDone(lesson),
-                                           stars: store.stars(for: lesson), locked: !open)
+                                           stars: store.stars(for: lesson))
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("learnLesson-\(lesson.id)")
                     }
                 }
             }
             .padding(20)
             .frame(maxWidth: 820)
             .frame(maxWidth: .infinity)
-        }
-    }
-
-    /// Waits for the question to close before opening the lesson full screen.
-    private func openLater(_ lesson: LearnLesson) {
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 350_000_000)
-            playing = lesson
         }
     }
 }
@@ -377,17 +369,14 @@ struct LearnLessonRow: View {
     let lesson: LearnLesson
     let done: Bool
     let stars: Int
-    let locked: Bool
 
     var body: some View {
         HStack(spacing: 14) {
             ZStack {
                 Circle()
-                    .fill(done ? Color.green.opacity(0.16) : (locked ? Color.secondary.opacity(0.12) : Theme.accent.opacity(0.14)))
+                    .fill(done ? Color.green.opacity(0.16) : Theme.accent.opacity(0.14))
                 if done {
                     Image(systemName: "checkmark").font(.headline).foregroundStyle(.green)
-                } else if locked {
-                    Image(systemName: "lock.fill").font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     Text("\(number)").font(.headline.monospacedDigit()).foregroundStyle(Theme.accent)
                 }
@@ -397,7 +386,7 @@ struct LearnLessonRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(lesson.title)
                     .font(.headline)
-                    .foregroundStyle(locked ? Color.secondary : Color.primary)
+                    .foregroundStyle(Color.primary)
                 Text(lesson.summary)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -420,6 +409,6 @@ struct LearnLessonRow: View {
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .accessibilityElement(children: .combine)
-        .accessibilityHint(locked ? "Locked. You can still open it." : "Starts the lesson")
+        .accessibilityHint("Starts the lesson")
     }
 }

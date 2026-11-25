@@ -1,7 +1,8 @@
 import SwiftUI
 import GaleLearn
 
-/// Holds the built-in courses and the kid's own progress (stars, streak, unlocked courses).
+/// Holds the built-in courses and the kid's own progress (stars, streak, and projects made in lessons).
+/// Every course is open from the start.
 /// Progress is saved on this device only, in Application Support/Learn/progress.json.
 @MainActor
 final class LearnStore: ObservableObject {
@@ -101,6 +102,18 @@ final class LearnStore: ObservableObject {
         }
         save()
         return opened
+    }
+
+    // MARK: Animate steps
+
+    /// The Gale project made for an "animate it" step, if one was made before.
+    func studioProjectID(lesson: LearnLesson, step: LearnStep) -> String? {
+        progress.studioProject(lesson: lesson.id, step: step.id)
+    }
+
+    func setStudioProject(_ projectID: String?, lesson: LearnLesson, step: LearnStep) {
+        progress.setStudioProject(projectID, lesson: lesson.id, step: step.id)
+        save()
     }
 
     func save() {

@@ -68,10 +68,13 @@ def F(paths, hold=1, notes=None):
     return d
 
 
-def G(frames, fps=12, loop=True, bg=None, aspect=ASPECT):
+def G(frames, fps=12, loop=True, bg=None, aspect=ASPECT, track=None):
     d = {"aspect": round(aspect, 6), "fps": fps, "loop": loop, "frames": frames}
     if bg:
         d["background"] = bg
+    if track:
+        assert len(track) == len(frames), ("track needs one point per frame", len(track), len(frames))
+        d["track"] = [round(v, 4) + 0.0 for p in track for v in p]
     return d
 
 
@@ -150,13 +153,42 @@ def tool(title, text, tool_name, tasks, guide=None):
     return s
 
 
-MINUTES = {"read": 0.6, "trace": 1.0, "frames": 3.0, "quiz": 0.5, "tool": 2.0}
+def beat(say, frm, to=None, show=()):
+    """One spoken moment of a watch step: the words, the frames that play, and the overlays laid on top
+    ("onion", "trail", "chart", "slow")."""
+    b = {"say": say, "from": frm, "to": frm if to is None else to}
+    if show:
+        b["show"] = list(show)
+    return b
+
+
+def watch(title, text, guide, beats):
+    """Watch and listen: the narrator says each beat while its frames play."""
+    return {"kind": "watch", "title": title, "text": text, "guide": guide, "beats": list(beats)}
+
+
+def animate(title, text, frame_list, hint=None, checks=(), bg=None, fps=12, coverage=0.7, accuracy=0.7,
+            tolerance=0.05, loop=True, say=None):
+    """Animate it for real: the frames open in Gale's editor on a locked guide layer."""
+    n = len(frame_list)
+    s = {"kind": "animate", "title": title, "text": text,
+         "guide": G(frame_list, fps=fps, loop=loop, bg=bg),
+         "checks": [chk_trace(coverage, accuracy, tolerance), chk_frames(n)] + list(checks)}
+    if hint:
+        s["hint"] = hint
+    if say:
+        s["say"] = list(say)
+    return s
+
+
+MINUTES = {"read": 0.6, "trace": 1.0, "frames": 3.0, "quiz": 0.5, "tool": 2.0, "watch": 1.0, "animate": 5.0}
 
 
 def lesson(lid, title, summary, steps):
     for i, s in enumerate(steps):
         s["id"] = "s%d" % (i + 1)
-    ordered = [{k: s[k] for k in ("id", "kind", "title", "text", "hint", "guide", "checks", "quiz", "tool") if k in s}
+    ordered = [{k: s[k] for k in ("id", "kind", "title", "text", "hint", "guide", "checks", "quiz", "tool", "say", "beats")
+                if k in s}
                for s in steps]
     minutes = max(2, int(math.ceil(sum(MINUTES[s["kind"]] for s in steps))))
     return {"id": lid, "title": title, "summary": summary, "minutes": minutes, "steps": ordered}
@@ -303,7 +335,7 @@ def wobble(s):
 
 def check_step(where, s):
     """Raises if a drawing step would not pass with its own guide, or would pass with a scribble."""
-    if s["kind"] not in ("trace", "frames"):
+    if s["kind"] not in ("trace", "frames", "animate"):
         return
     frames_ = s["guide"]["frames"]
     per = [ink_strokes(f) for f in frames_]
@@ -364,6 +396,20 @@ def check_lesson(lesson_):
         check_step(lesson_["id"] + "/" + s["id"], s)
         if s["kind"] == "frames":
             assert 2 <= len(s["guide"]["frames"]) <= 12, (lesson_["id"], s["id"], "frame count")
+        if s["kind"] == "animate":
+            assert 2 <= len(s["guide"]["frames"]) <= 24, (lesson_["id"], s["id"], "frame count")
+        if s["kind"] == "watch":
+            nf = len(s["guide"]["frames"])
+            assert 1 <= len(s["beats"]) <= 10 and not s.get("checks"), (lesson_["id"], s["id"], "beats")
+            for b in s["beats"]:
+                assert b["say"].strip(), (lesson_["id"], s["id"], "empty beat")
+                assert 0 <= b["from"] <= b["to"] < nf, (lesson_["id"], s["id"], "beat range", b)
+                for o in b.get("show", []):
+                    assert o in ("onion", "trail", "chart", "slow"), (lesson_["id"], s["id"], o)
+                    if o in ("trail", "chart"):
+                        assert b["to"] > b["from"], (lesson_["id"], s["id"], "trail needs frames", b)
+        elif "beats" in s:
+            raise AssertionError((lesson_["id"], s["id"], "only watch steps have beats"))
         if s["kind"] == "quiz":
             q = s["quiz"]
             assert 2 <= len(q["choices"]) <= 4 and 0 <= q["answer"] < len(q["choices"]), (lesson_["id"], s["id"])

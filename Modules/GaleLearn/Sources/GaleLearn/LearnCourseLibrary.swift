@@ -134,7 +134,7 @@ public struct LearnCourseLibrary: Hashable, Sendable {
     public func selfCheck() -> [String] {
         var problems: [String] = []
         for l in lessons {
-            for s in l.steps where s.kind == .trace || s.kind == .frames || s.kind == .quiz {
+            for s in l.steps where s.kind == .trace || s.kind.drawsFrames || s.kind == .quiz {
                 let r = LearnEvaluator.evaluate(s, answer: LearnEvaluator.perfectAnswer(for: s))
                 if !r.passed {
                     let fails = r.outcomes.filter { !$0.passed }.map { "\($0.type.rawValue): \($0.message)" }
@@ -175,8 +175,12 @@ public struct LearnCourseLibrary: Hashable, Sendable {
             if s.title.isEmpty { p.append("\(at) has no title.") }
             if s.kind != .quiz && s.text.isEmpty { p.append("\(at) has no text.") }
             if let g = s.guide { p += problems(in: g, at: at) }
+            if s.say.contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+                p.append("\(at) has an empty spoken line.")
+            }
+            if s.kind != .watch && !s.beats.isEmpty { p.append("\(at): only watch steps have beats.") }
             for c in s.checks {
-                if c.type.needsFrames && s.kind != .frames { p.append("\(at): \(c.type.rawValue) check only works on frame steps.") }
+                if c.type.needsFrames && !s.kind.drawsFrames { p.append("\(at): \(c.type.rawValue) check only works on frame steps.") }
                 p += problems(in: c, at: at, frameCount: s.guide?.frames.count ?? 0)
             }
             switch s.kind {
@@ -205,13 +209,39 @@ public struct LearnCourseLibrary: Hashable, Sendable {
                 guard let t = s.tool else { p.append("\(at): tool missing."); break }
                 if t.tasks.isEmpty || t.tasks.contains(where: { $0.isEmpty }) { p.append("\(at): tool needs tasks.") }
                 if !s.checks.isEmpty { p.append("\(at): tool steps have no checks.") }
+            case .watch:
+                guard let g = s.guide else { p.append("\(at): watch needs a guide."); break }
+                if !s.checks.isEmpty { p.append("\(at): watch steps have no checks.") }
+                if s.beats.isEmpty { p.append("\(at): watch needs beats.") }
+                if s.beats.count > 10 { p.append("\(at): watch has too many beats (max 10).") }
+                for (i, b) in s.beats.enumerated() {
+                    if b.say.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { p.append("\(at) beat \(i + 1) says nothing.") }
+                    if b.from < 0 || b.to < 0 || b.from >= g.frames.count || b.to >= g.frames.count {
+                        p.append("\(at) beat \(i + 1): frames \(b.from)...\(b.to) aren't in the guide.")
+                    }
+                    if b.from > b.to { p.append("\(at) beat \(i + 1): from is after to.") }
+                    if (b.has(.trail) || b.has(.chart)) && b.holdsStill { p.append("\(at) beat \(i + 1): a trail needs more than one frame.") }
+                }
+            case .animate:
+                guard let g = s.guide else { p.append("\(at): animate needs a guide."); break }
+                if g.frames.count < 2 { p.append("\(at): animate needs at least 2 frames.") }
+                if g.frames.count > LearnCourseLibrary.maxAnimateFrames { p.append("\(at): animate has too many frames (max \(LearnCourseLibrary.maxAnimateFrames)).") }
+                if g.frames.contains(where: { $0.inkPaths.isEmpty }) { p.append("\(at): every frame needs ink lines.") }
+                if s.traceCheck == nil { p.append("\(at): animate needs a trace check.") }
             }
         }
         return p
     }
 
+    /// Most frames an animate step asks for (the real editor handles more, but lessons stay short).
+    public static let maxAnimateFrames = 24
+
     static func problems(in guide: LearnGuide, at: String) -> [String] {
         var p: [String] = []
+        if !guide.track.isEmpty && guide.track.count != guide.frames.count {
+            p.append("\(at): guide track has \(guide.track.count) points for \(guide.frames.count) frames.")
+        }
+        if guide.track.contains(where: { !$0.isFinite }) { p.append("\(at): guide track has a bad point.") }
         if !(guide.aspect >= 0.5 && guide.aspect <= 2.5) { p.append("\(at): guide aspect \(guide.aspect) is odd.") }
         if guide.fps < 1 || guide.fps > 60 { p.append("\(at): guide fps \(guide.fps) is odd.") }
         if guide.frames.isEmpty { p.append("\(at): guide has no frames.") }

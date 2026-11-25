@@ -29,15 +29,19 @@ public struct LearnProgress: Codable, Hashable, Sendable {
     public var activeDays: [String]
     /// Courses that are open, in the order they opened.
     public var unlockedCourses: [String]
+    /// Gale projects made by "animate it" steps, by step ("lessonID/stepID" → project id),
+    /// so coming back to a step opens the same animation instead of a new one.
+    public var studioProjects: [String: String]
 
     public init() {
         version = 1
         lessons = [:]
         activeDays = []
         unlockedCourses = []
+        studioProjects = [:]
     }
 
-    enum CodingKeys: String, CodingKey { case version, lessons, activeDays, unlockedCourses }
+    enum CodingKeys: String, CodingKey { case version, lessons, activeDays, unlockedCourses, studioProjects }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -45,6 +49,19 @@ public struct LearnProgress: Codable, Hashable, Sendable {
         lessons = try c.decodeIfPresent([String: LearnLessonRecord].self, forKey: .lessons) ?? [:]
         activeDays = try c.decodeIfPresent([String].self, forKey: .activeDays) ?? []
         unlockedCourses = try c.decodeIfPresent([String].self, forKey: .unlockedCourses) ?? []
+        studioProjects = try c.decodeIfPresent([String: String].self, forKey: .studioProjects) ?? [:]
+    }
+
+    // MARK: Animate steps
+
+    public static func studioKey(lesson: String, step: String) -> String { "\(lesson)/\(step)" }
+
+    public func studioProject(lesson: String, step: String) -> String? {
+        studioProjects[LearnProgress.studioKey(lesson: lesson, step: step)]
+    }
+
+    public mutating func setStudioProject(_ projectID: String?, lesson: String, step: String) {
+        studioProjects[LearnProgress.studioKey(lesson: lesson, step: step)] = projectID
     }
 
     // MARK: Lessons
@@ -119,19 +136,23 @@ public struct LearnProgress: Codable, Hashable, Sendable {
 
     // MARK: Unlocks
 
-    /// A course opens when every course it needs is finished.
+    /// Every course is open from day one: nobody has to trace circles before they're allowed to animate.
+    /// A course's `requires` list is only advice ("best after").
     public func isCourseUnlocked(_ course: LearnCourse, in library: LearnCourseLibrary) -> Bool {
+        library.course(id: course.id) != nil
+    }
+
+    /// Whether the courses this one builds on are finished (shown as "Best after ..." when they aren't).
+    public func isCourseReady(_ course: LearnCourse, in library: LearnCourseLibrary) -> Bool {
         course.requires.allSatisfy { id in
             guard let needed = library.course(id: id) else { return true }
             return isCourseCompleted(needed)
         }
     }
 
-    /// The first lesson of an open course is open; each next one opens when the one before is finished.
+    /// Every lesson of a course is open. Lessons are still listed in the best order to do them.
     public func isLessonUnlocked(_ lesson: LearnLesson, in course: LearnCourse, library: LearnCourseLibrary) -> Bool {
-        guard isCourseUnlocked(course, in: library),
-              let i = course.lessons.firstIndex(where: { $0.id == lesson.id }) else { return false }
-        return i == 0 || isCompleted(course.lessons[i - 1].id) || isCompleted(lesson.id)
+        isCourseUnlocked(course, in: library) && course.lessons.contains { $0.id == lesson.id }
     }
 
     /// Adds newly opened courses to `unlockedCourses` and returns their ids.

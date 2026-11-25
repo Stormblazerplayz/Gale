@@ -82,8 +82,9 @@ public struct LearnLessonRun: Sendable {
         switch step.kind {
         case .trace: return "Go slowly at first and keep your line right on top of the gray guide."
         case .frames: return "Use the faint guide and the frosted onion skin of your last frame to line things up."
+        case .animate: return "Keep the guide layer showing and turn on onion skin. Draw on the Your animation layer, one frame at a time."
         case .quiz: return "Look at the animation again, then reread the question."
-        case .read, .tool: return "Take your time."
+        case .read, .tool, .watch: return "Take your time."
         }
     }
 
@@ -167,11 +168,11 @@ public struct LearnLessonRun: Sendable {
         switch kind {
         case .quiz:
             return fails == 0 ? 3 : (fails == 1 ? 2 : 1)
-        case .trace, .frames:
+        case .trace, .frames, .animate:
             var s = quality >= 0.9 ? 3 : (quality >= 0.75 ? 2 : 1)
             if fails >= 2 { s -= 1 }
             return max(1, s)
-        case .read, .tool:
+        case .read, .tool, .watch:
             return 0
         }
     }
