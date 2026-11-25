@@ -61,13 +61,25 @@ const ADAPTIVE = {
 
 const clamp01 = (a) => Math.min(1, Math.max(0, Number.isFinite(a) ? a : 0));
 
-/** How a smoothing amount reads in the app: "Off" or a percentage. */
-function label(amount) {
+/**
+ * How a smoothing amount reads in the app: "Off" or a percentage.
+ * With `faceMode` on it reads "Face".
+ */
+function label(amount, faceMode = false) {
+  if (faceMode) return 'Face';
   const a = clamp01(amount);
   return a < 0.005 ? 'Off' : `${Math.round(a * 100)}%`;
 }
 
 const hasTime = (p) => typeof p.time === 'number' && Number.isFinite(p.time);
+
+/**
+ * The amount a stroke is actually drawn with. Face mode draws exactly where you touch (smoothing off)
+ * for eyes, mouths and small details, and keeps the slider's own amount for when it's turned off.
+ */
+function drawAmount(amount, faceMode = false) {
+  return faceMode ? 0 : clamp01(amount);
+}
 
 class StrokeStabilizer {
   constructor(amount, scale = 1, adaptive = true) {
@@ -651,6 +663,6 @@ function smooth(points, amount) {
 }
 
 module.exports = {
-  StrokeStabilizer, smooth, shape, finish, round, corners, bends, adaptiveFactors, resample, radius, label,
+  StrokeStabilizer, smooth, shape, finish, round, corners, bends, adaptiveFactors, resample, radius, label, drawAmount,
   DEFAULT_AMOUNT, CORNER_ANGLE, CORNER_ARM, STRING_STARTS, ADAPTIVE,
 };

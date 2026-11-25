@@ -72,6 +72,8 @@
       sharpCorners: s.sharpCorners !== false,
       // What the last stabilizer test found (null until you take it).
       calibration: s.calibration && typeof s.calibration.level === 'string' ? s.calibration : null,
+      // Face mode: smoothing off for eyes, mouths and small details, keeping the slider's amount.
+      faceMode: s.faceMode === true,
       onion: Onion.settings(s.onion),
       recent: Array.isArray(s.recent) ? s.recent.filter((c) => Color.parse(c)).slice(0, 12) : [],
     };
@@ -418,7 +420,8 @@
     viewCanvas().setPointerCapture(e.pointerId);
     const t0 = e.timeStamp;
     const scale = 1 / E.view.scale;
-    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, scale, E.settings.sharpCorners);
+    const smoothing = Stabilizer.drawAmount(E.settings.smoothing, E.settings.faceMode);
+    const stab = new Stabilizer.StrokeStabilizer(smoothing, scale, E.settings.sharpCorners);
     const brush = currentBrush(penEraser);
     const first = penPoint(e, t0);
     const raw = stab.begin(first);
@@ -428,6 +431,7 @@
       stab,
       brush,
       scale,
+      smoothing,
       raw,
       // The touches before any smoothing, for the before and after preview.
       input: [first],
@@ -459,7 +463,7 @@
     // A snap to a corner can redraw the end of the line, so always take the whole line.
     d.raw = d.stab.points;
     // Same finishing step while drawing and when you lift, so the line never jumps.
-    d.points = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale, E.settings.sharpCorners);
+    d.points = Stabilizer.shape(d.raw, d.smoothing, d.scale, E.settings.sharpCorners);
     sendLive(false);
     requestRender();
   }
@@ -475,7 +479,7 @@
     }
     d.stab.end();
     d.raw = d.stab.points;
-    const pts = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale, E.settings.sharpCorners);
+    const pts = Stabilizer.shape(d.raw, d.smoothing, d.scale, E.settings.sharpCorners);
     if (d.brush.kind !== 'eraser' && d.input.length >= 8) {
       // Keep the raw touches in screen pixels, so the preview smooths them the way you saw.
       E.lastRaw = d.input.map((q) => ({ ...q, x: q.x / d.scale, y: q.y / d.scale }));
@@ -618,7 +622,7 @@
   function drawStabilizerPreview() {
     const c = $('br-preview');
     if (!c || !Gale.stabilizer) return;
-    Gale.stabilizer.drawBeforeAfter(c, E.lastRaw, E.settings.smoothing, E.settings.sharpCorners,
+    Gale.stabilizer.drawBeforeAfter(c, E.lastRaw, Stabilizer.drawAmount(E.settings.smoothing, E.settings.faceMode), E.settings.sharpCorners,
       'Draw a line to see it here, before and after smoothing.');
   }
 
@@ -631,8 +635,7 @@
     $('br-opacity').value = String(Math.round(s.opacity * 100));
     $('br-opacity-out').textContent = `${Math.round(s.opacity * 100)}%`;
     $('br-opacity').disabled = E.tool === 'eraser';
-    $('br-smooth').value = String(Math.round(s.smoothing * 100));
-    $('br-smooth-out').textContent = Stabilizer.label(s.smoothing);
+    showSmoothing();
     $('br-corners').checked = s.sharpCorners;
     const tuned = $('br-tuned');
     tuned.hidden = !s.calibration;
@@ -996,7 +999,29 @@
         else if (k === 'n') addFrame();
         else if (k === 'd') duplicateFrame();
         else if (k === 'o') toggleOnion();
+        else if (k === 'f') toggleFaceMode();
     }
+  }
+
+  /** Shows the smoothing slider and the Face mode button the way the settings are. */
+  function showSmoothing() {
+    const s = E.settings;
+    $('br-smooth').value = String(Math.round(s.smoothing * 100));
+    $('br-smooth').classList.toggle('dim', s.faceMode);
+    $('br-smooth-out').textContent = Stabilizer.label(s.smoothing, s.faceMode);
+    const face = $('br-face');
+    face.classList.toggle('on', s.faceMode);
+    face.setAttribute('aria-pressed', s.faceMode ? 'true' : 'false');
+    face.textContent = s.faceMode ? '☺ Face mode on' : '☺ Face mode';
+  }
+
+  /** One tap (or F) turns smoothing off for faces and small details; again brings the slider back. */
+  function toggleFaceMode() {
+    E.settings.faceMode = !E.settings.faceMode;
+    showSmoothing();
+    saveSettings();
+    drawStabilizerPreview();
+    toast(E.settings.faceMode ? 'Face mode on: smoothing is off for details.' : `Face mode off: smoothing back to ${Stabilizer.label(E.settings.smoothing)}.`);
   }
 
   function onKeyUp(e) {
@@ -1081,8 +1106,10 @@
       saveSettings();
     });
     $('br-smooth').addEventListener('input', (e) => {
+      // Moving the slider means you want smoothing, so it leaves Face mode.
       E.settings.smoothing = Number(e.target.value) / 100;
-      $('br-smooth-out').textContent = Stabilizer.label(E.settings.smoothing);
+      E.settings.faceMode = false;
+      showSmoothing();
       saveSettings();
       drawStabilizerPreview();
     });
@@ -1095,11 +1122,13 @@
       const picked = await Gale.stabilizer.openTest({ adaptive: E.settings.sharpCorners });
       if (!picked) return;
       E.settings.smoothing = picked.amount;
+      E.settings.faceMode = false;
       E.settings.calibration = picked.result;
       saveSettings();
       refreshBrush();
       toast(`Smoothing set to ${Stabilizer.label(picked.amount)} for your hand`);
     });
+    $('br-face').addEventListener('click', toggleFaceMode);
 
     $('layer-opacity').addEventListener('input', (e) => {
       if (!E.layerId) return;

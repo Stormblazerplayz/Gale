@@ -14,6 +14,18 @@ public enum StrokeSmoothing {
         return "\(Int((a * 100).rounded()))%"
     }
 
+    /// The amount a stroke is actually drawn with. Face mode draws exactly where you touch
+    /// (smoothing off) for eyes, mouths and other small details, and keeps the slider's own setting
+    /// so turning Face mode off brings it right back.
+    public static func amount(_ amount: Double, faceMode: Bool) -> Double {
+        faceMode ? 0 : min(1, max(0, amount))
+    }
+
+    /// How the smoothing setting reads in the app, with Face mode showing as "Face".
+    public static func label(_ amount: Double, faceMode: Bool) -> String {
+        faceMode ? "Face" : label(amount)
+    }
+
     /// A bend sharper than this (in degrees) is a corner you meant, so it's kept sharp.
     public static let cornerAngle: Double = 60
     /// How far each way (in screen points) a bend is measured to decide if it's a corner.

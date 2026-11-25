@@ -18,14 +18,19 @@ struct StabilizerSection: View {
                         TunedBadge(result: c)
                     }
                     Spacer()
-                    Button("Reset") { model.smoothing = StrokeSmoothing.defaultAmount }
+                    Button("Reset") { model.setSmoothing(StrokeSmoothing.defaultAmount) }
                         .font(.footnote)
                         .buttonStyle(.borderless)
-                        .disabled(abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
+                        .disabled(!model.faceMode && abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
                         .accessibilityIdentifier("smoothingReset")
                 }
-                SmoothingControl(value: $model.smoothing, compact: false)
-                BeforeAfterPreview(raw: model.lastRawLine, amount: model.smoothing, sharpCorners: model.sharpCorners,
+                SmoothingControl(model: model, compact: false)
+                Toggle(isOn: $model.faceMode) {
+                    Label("Face mode", systemImage: "face.smiling")
+                }
+                .tint(Theme.accent)
+                .accessibilityIdentifier("faceModeToggle")
+                BeforeAfterPreview(raw: model.lastRawLine, amount: model.drawingSmoothing, sharpCorners: model.sharpCorners,
                                    emptyText: "Draw a line on your canvas to see it here, before and after smoothing.")
                     .frame(height: 120)
             }
@@ -72,7 +77,7 @@ struct StabilizerSection: View {
             }
             .accessibilityIdentifier("stabilizerTest")
         } footer: {
-            Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Small strokes like eyes keep their shape either way.")
+            Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Face mode turns smoothing off for eyes, mouths and small details, and keeps your slider setting for when you turn it off.")
         }
     }
 }
@@ -280,7 +285,7 @@ struct StabilizerCalibrationView: View {
         var tuned = r
         tuned.amount = tryAmount
         model.calibration = tuned
-        model.smoothing = tryAmount
+        model.setSmoothing(tryAmount)
         dismiss()
     }
 
@@ -554,7 +559,7 @@ private struct ResultView: View {
                     HStack {
                         Text("Try it")
                             .font(.subheadline)
-                        SmoothingControl(value: $tryAmount, compact: false)
+                        SmoothingValueControl(value: $tryAmount, compact: false)
                     }
                     if abs(tryAmount - result.amount) > 0.005 {
                         Button("Back to the recommended \(StrokeSmoothing.label(result.amount))") { tryAmount = result.amount }
