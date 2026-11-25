@@ -177,6 +177,24 @@ final class EditorUITests: XCTestCase {
         smoothing.adjust(toNormalizedSliderPosition: 0.25)
         XCTAssertFalse((smoothing.value as? String ?? "Off").contains("Off"), "Dragging the slider should turn smoothing back on")
 
+        // 5c. Face mode: one tap turns smoothing off for details, one more tap brings the slider back.
+        let faceMode = waitFor(element("faceMode"), "The Face mode button should be on the toolbar")
+        waitForValue(faceMode, contains: "off", "Face mode should start off")
+        faceMode.tap()
+        waitForValue(faceMode, contains: "on", "Tapping Face mode should turn it on")
+        waitForValue(smoothing, contains: "Face", "The slider should show Face while Face mode is on")
+        shot("03c Face mode on")
+        element("testScribble").tap()
+        waitForValue(canvas, contains: "strokes 3,", "The test scribble should add a stroke in Face mode")
+        let faceBend = number("bend", in: canvasValue())
+        XCTAssertGreaterThan(faceBend, bend, "Face mode should draw the shake exactly (\(faceBend)° vs \(bend)° smoothed)")
+        app.buttons["Undo"].tap()
+        waitForValue(canvas, contains: "strokes 2,", "Undo the Face mode wave")
+        faceMode.tap()
+        waitForValue(faceMode, contains: "off", "Tapping Face mode again should turn it off")
+        let back = smoothing.value as? String ?? ""
+        XCTAssertFalse(back.contains("Face") || back.contains("Off"), "Turning Face mode off should bring the slider setting back, got \(back)")
+
         // 6. Lasso: tap on the line to pick it, then the selection buttons show.
         element("tool-select").tap()
         waitForValue(element("tool-select"), contains: "selected", "Select tool should turn on")

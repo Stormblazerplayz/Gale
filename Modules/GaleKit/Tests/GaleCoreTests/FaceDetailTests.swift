@@ -177,4 +177,50 @@ final class FaceDetailTests: XCTestCase {
         XCTAssertEqual(StrokeSmoothing.label(1), "100%")
         XCTAssertEqual(StrokeSmoothing.label(-1), "Off")
     }
+
+    // MARK: Face mode
+
+    func testFaceModeTurnsSmoothingOffAndKeepsTheSlider() {
+        XCTAssertEqual(StrokeSmoothing.amount(0.8, faceMode: true), 0)
+        XCTAssertEqual(StrokeSmoothing.amount(0.8, faceMode: false), 0.8)
+        XCTAssertEqual(StrokeSmoothing.amount(1.5, faceMode: false), 1)
+        XCTAssertEqual(StrokeSmoothing.amount(-1, faceMode: false), 0)
+        XCTAssertEqual(StrokeSmoothing.label(0.8, faceMode: true), "Face")
+        XCTAssertEqual(StrokeSmoothing.label(0.8, faceMode: false), "80%")
+        XCTAssertEqual(StrokeSmoothing.label(0, faceMode: false), "Off")
+    }
+
+    func testFaceModeDrawsAnEyeExactlyEvenWithStrongSmoothing() {
+        // A wobbly little eye with the slider all the way up: Face mode still draws every bump you made.
+        let raw = circle(radius: 6, samples: 30, wobble: 0.8, seed: 7)
+        let out = StrokeSmoothing.finish(raw, amount: StrokeSmoothing.amount(1, faceMode: true))
+        // Every point drawn is one of your touches (nothing moved)...
+        for a in out {
+            XCTAssertLessThan(nearest(raw, to: Vec2(a)), 0.0001, "Face mode moved a point")
+        }
+        // ...and every touch is drawn (only touches closer than a third of a point to the last one are skipped).
+        for b in raw {
+            XCTAssertLessThan(nearest(out, to: Vec2(b)), 0.36, "Face mode dropped a touch")
+        }
+        XCTAssertEqual(Vec2(out.first!).distance(to: Vec2(raw.first!)), 0, accuracy: 0.0001)
+        XCTAssertEqual(Vec2(out.last!).distance(to: Vec2(raw.last!)), 0, accuracy: 0.0001)
+        // Without Face mode the same slider setting does change the line.
+        let smoothed = StrokeSmoothing.finish(raw, amount: StrokeSmoothing.amount(1, faceMode: false))
+        let moved = zip(StrokeShape.resample(smoothed, spacing: 1), StrokeShape.resample(raw, spacing: 1))
+            .map { Vec2($0).distance(to: Vec2($1)) }.max() ?? 0
+        XCTAssertGreaterThan(moved, 0.05)
+    }
+
+    func testFaceModeLiveStrokeMatchesFinishedStroke() {
+        // The canvas shapes the line live and again on lift; in Face mode both are your exact touches.
+        let raw = polyline([Vec2(100, 100), Vec2(108, 96), Vec2(116, 104)], wobble: 0.5, seed: 9)
+        let st = StrokeStabilizer(amount: StrokeSmoothing.amount(0.9, faceMode: true))
+        var live = st.begin(raw[0])
+        for p in raw.dropFirst() { live += st.add(p) }
+        live += st.end()
+        let shaped = StrokeSmoothing.shape(StrokeShape.dedupe(live), amount: StrokeSmoothing.amount(0.9, faceMode: true))
+        XCTAssertEqual(shaped.count, StrokeShape.dedupe(live).count)
+        XCTAssertEqual(Vec2(shaped.first!).distance(to: Vec2(raw.first!)), 0, accuracy: 0.0001)
+        XCTAssertEqual(Vec2(shaped.last!).distance(to: Vec2(raw.last!)), 0, accuracy: 0.0001)
+    }
 }

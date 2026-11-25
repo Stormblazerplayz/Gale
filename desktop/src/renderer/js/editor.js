@@ -66,6 +66,8 @@
       // The old tuning started at a strong 0.55 that rounded off faces: move everyone to the light default once.
       smoothing: (s.smoothingVersion || 1) < SMOOTHING_VERSION ? Stabilizer.DEFAULT_AMOUNT : num(s.smoothing, Stabilizer.DEFAULT_AMOUNT, 0, 1),
       smoothingVersion: SMOOTHING_VERSION,
+      // Face mode: smoothing off for eyes, mouths and small details, keeping the slider's amount.
+      faceMode: s.faceMode === true,
       onion: Onion.settings(s.onion),
       recent: Array.isArray(s.recent) ? s.recent.filter((c) => Color.parse(c)).slice(0, 12) : [],
     };
@@ -407,7 +409,8 @@
     viewCanvas().setPointerCapture(e.pointerId);
     const t0 = e.timeStamp;
     const scale = 1 / E.view.scale;
-    const stab = new Stabilizer.StrokeStabilizer(E.settings.smoothing, scale);
+    const smoothing = Stabilizer.drawAmount(E.settings.smoothing, E.settings.faceMode);
+    const stab = new Stabilizer.StrokeStabilizer(smoothing, scale);
     const brush = currentBrush(penEraser);
     const raw = stab.begin(penPoint(e, t0));
     E.drawing = {
@@ -416,6 +419,7 @@
       stab,
       brush,
       scale,
+      smoothing,
       raw,
       points: raw.slice(),
       strokeId: Model.makeId(),
@@ -441,7 +445,7 @@
       for (const q of d.stab.add(penPoint(ev, d.t0))) d.raw.push(q);
     }
     // Same finishing step while drawing and when you lift, so the line never jumps.
-    d.points = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
+    d.points = Stabilizer.shape(d.raw, d.smoothing, d.scale);
     sendLive(false);
     requestRender();
   }
@@ -456,7 +460,7 @@
       return;
     }
     for (const q of d.stab.end()) d.raw.push(q);
-    const pts = Stabilizer.shape(d.raw, E.settings.smoothing, d.scale);
+    const pts = Stabilizer.shape(d.raw, d.smoothing, d.scale);
     const stroke = { id: d.strokeId, key: 'a0', brush: d.brush, pts: Model.packPoints(pts) };
     E.drawing = { ...d, points: pts };
     sendLive(true);
@@ -599,8 +603,7 @@
     $('br-opacity').value = String(Math.round(s.opacity * 100));
     $('br-opacity-out').textContent = `${Math.round(s.opacity * 100)}%`;
     $('br-opacity').disabled = E.tool === 'eraser';
-    $('br-smooth').value = String(Math.round(s.smoothing * 100));
-    $('br-smooth-out').textContent = Stabilizer.label(s.smoothing);
+    showSmoothing();
     const sw = $('br-swatches');
     sw.textContent = '';
     for (const c of PALETTE) sw.appendChild(el('button', { class: 'swatch', title: c.slice(0, 7), style: `background:${Color.toCss(c)}`, onclick: () => pickColor(c) }));
@@ -958,7 +961,28 @@
         else if (k === 'n') addFrame();
         else if (k === 'd') duplicateFrame();
         else if (k === 'o') toggleOnion();
+        else if (k === 'f') toggleFaceMode();
     }
+  }
+
+  /** Shows the smoothing slider and the Face mode button the way the settings are. */
+  function showSmoothing() {
+    const s = E.settings;
+    $('br-smooth').value = String(Math.round(s.smoothing * 100));
+    $('br-smooth').classList.toggle('dim', s.faceMode);
+    $('br-smooth-out').textContent = Stabilizer.label(s.smoothing, s.faceMode);
+    const face = $('br-face');
+    face.classList.toggle('on', s.faceMode);
+    face.setAttribute('aria-pressed', s.faceMode ? 'true' : 'false');
+    face.textContent = s.faceMode ? '☺ Face mode on' : '☺ Face mode';
+  }
+
+  /** One tap (or F) turns smoothing off for faces and small details; again brings the slider back. */
+  function toggleFaceMode() {
+    E.settings.faceMode = !E.settings.faceMode;
+    showSmoothing();
+    saveSettings();
+    toast(E.settings.faceMode ? 'Face mode on: smoothing is off for details.' : `Face mode off: smoothing back to ${Stabilizer.label(E.settings.smoothing)}.`);
   }
 
   function onKeyUp(e) {
@@ -1043,10 +1067,13 @@
       saveSettings();
     });
     $('br-smooth').addEventListener('input', (e) => {
+      // Moving the slider means you want smoothing, so it leaves Face mode.
       E.settings.smoothing = Number(e.target.value) / 100;
-      $('br-smooth-out').textContent = Stabilizer.label(E.settings.smoothing);
+      E.settings.faceMode = false;
+      showSmoothing();
       saveSettings();
     });
+    $('br-face').addEventListener('click', toggleFaceMode);
 
     $('layer-opacity').addEventListener('input', (e) => {
       if (!E.layerId) return;

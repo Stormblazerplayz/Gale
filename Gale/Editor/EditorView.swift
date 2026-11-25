@@ -51,7 +51,7 @@ struct EditorView: View {
     private var canvasState: CanvasState {
         CanvasState(project: document.project, frameIndex: min(document.currentFrame, document.project.frames.count - 1),
                     layerID: document.currentLayerID, onion: model.onion, tool: model.tool, brush: model.brush,
-                    smoothing: model.smoothing, fingerDraws: model.fingerDraws, selection: model.selection,
+                    smoothing: model.drawingSmoothing, fingerDraws: model.fingerDraws, selection: model.selection,
                     hairSide: model.hairSide, fillGap: model.fillGapClose)
     }
 
@@ -293,12 +293,15 @@ struct ToolBar: View {
                     .presentationDetents([.medium, .large])
                     .presentationCompactAdaptation(.sheet)
             }
-            // Smoothing right on the toolbar on iPad, so it's easy to turn down for faces and details.
-            // On a narrow screen it lives in the brush settings instead.
-            if sizeClass != .compact && (model.tool == .brush || model.tool == .eraser) {
+            // Face mode and smoothing right on the toolbar, so faces and details are one tap away.
+            // On a narrow screen the slider lives in the brush settings, but Face mode stays here.
+            if model.tool == .brush || model.tool == .eraser {
                 Divider().frame(height: 28)
-                SmoothingControl(value: $model.smoothing, compact: true)
-                    .frame(width: 190)
+                FaceModeButton(model: model, compact: true)
+                if sizeClass != .compact {
+                    SmoothingControl(model: model, compact: true)
+                        .frame(width: 190)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -360,48 +363,78 @@ struct BrushPanel: View {
                     HStack {
                         Text("Smoothing")
                         Spacer()
-                        Button("Reset") { model.smoothing = StrokeSmoothing.defaultAmount }
+                        Button("Reset") { model.setSmoothing(StrokeSmoothing.defaultAmount) }
                             .font(.footnote)
                             .buttonStyle(.borderless)
-                            .disabled(abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
+                            .disabled(!model.faceMode && abs(model.smoothing - StrokeSmoothing.defaultAmount) < 0.005)
                             .accessibilityIdentifier("smoothingReset")
                     }
-                    SmoothingControl(value: $model.smoothing, compact: false)
+                    SmoothingControl(model: model, compact: false)
+                    Toggle(isOn: $model.faceMode) {
+                        Label("Face mode", systemImage: "face.smiling")
+                    }
+                    .tint(Theme.accent)
+                    .accessibilityIdentifier("faceModeToggle")
                 }
             } footer: {
-                Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Corners and small strokes like eyes keep their shape either way.")
+                Text("Off draws exactly where you touch. Turn it up if your lines come out shaky. Face mode turns smoothing off for eyes, mouths and small details, and keeps your slider setting for when you turn it off.")
             }
         }
     }
 }
 
 /// The smoothing strength slider: 0 is Off, with the amount shown as a percentage.
+/// In Face mode it shows "Face" and dims; moving it (or tapping Off) leaves Face mode.
 struct SmoothingControl: View {
-    @Binding var value: Double
+    @ObservedObject var model: EditorModel
     var compact: Bool
+
+    private var drawn: Double { model.drawingSmoothing }
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { value = 0 } label: {
-                Image(systemName: value < 0.005 ? "scribble" : "scribble.variable")
+            Button { model.setSmoothing(0) } label: {
+                Image(systemName: drawn < 0.005 ? "scribble" : "scribble.variable")
                     .font(.system(size: compact ? 15 : 17, weight: .semibold))
-                    .foregroundStyle(value < 0.005 ? Color.secondary : Theme.accent)
+                    .foregroundStyle(drawn < 0.005 ? Color.secondary : Theme.accent)
                     .frame(width: 28, height: 28)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Turn smoothing off")
             .accessibilityIdentifier("smoothingOff")
-            Slider(value: Binding(get: { value }, set: { value = $0 < 0.02 ? 0 : $0 }), in: 0...1)
+            Slider(value: Binding(get: { model.smoothing }, set: { model.setSmoothing($0 < 0.02 ? 0 : $0) }), in: 0...1)
                 .tint(Theme.accent)
+                .opacity(model.faceMode ? 0.45 : 1)
                 .accessibilityLabel("Smoothing strength")
-                .accessibilityValue(StrokeSmoothing.label(value))
+                .accessibilityValue(StrokeSmoothing.label(model.smoothing, faceMode: model.faceMode))
                 .accessibilityIdentifier("smoothing")
-            Text(StrokeSmoothing.label(value))
+            Text(StrokeSmoothing.label(model.smoothing, faceMode: model.faceMode))
                 .font((compact ? Font.caption : Font.subheadline).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(model.faceMode ? Theme.accent : Color.secondary)
                 .frame(width: compact ? 36 : 44, alignment: .trailing)
                 .accessibilityHidden(true)
         }
+    }
+}
+
+/// One tap turns smoothing off for faces and small details, and one more tap brings it back.
+struct FaceModeButton: View {
+    @ObservedObject var model: EditorModel
+    var compact: Bool
+
+    var body: some View {
+        Button { model.faceMode.toggle() } label: {
+            Image(systemName: model.faceMode ? "face.smiling.inverse" : "face.smiling")
+                .font(.system(size: compact ? 18 : 20, weight: .semibold))
+                .frame(width: 36, height: 36)
+                .background(model.faceMode ? Theme.accent.opacity(0.2) : .clear, in: Circle())
+                .foregroundStyle(model.faceMode ? Theme.accent : .primary)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Face mode")
+        .accessibilityValue(model.faceMode ? "on" : "off")
+        .accessibilityHint("Turns smoothing off for eyes, mouths and small details")
+        .accessibilityIdentifier("faceMode")
     }
 }
 
