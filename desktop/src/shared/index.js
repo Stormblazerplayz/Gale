@@ -10,6 +10,7 @@ module.exports = {
   Geometry: require('./geometry'),
   StrokeShape: require('./strokeShape'),
   Stabilizer: require('./stabilizer'),
+  Calibration: require('./calibration'),
   Onion: require('./onion'),
   Hair: require('./hair'),
   Playback: require('./playback'),
