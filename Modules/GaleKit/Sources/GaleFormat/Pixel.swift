@@ -77,8 +77,9 @@ public enum PixelRuns {
             let n = runs[i], v = runs[i + 1]
             i += 2
             guard n.isFinite, v.isFinite, n >= 1 else { continue }
-            let count = min(Int(n), limit - out.count)
-            let index = UInt8(min(255, max(0, Int(v))))
+            // Clamp as Doubles first: Int(1e300) would crash.
+            let count = Int(min(n, Double(limit - out.count)))
+            let index = UInt8(min(255, max(0, v)))
             if count > 0 { out.append(contentsOf: repeatElement(index, count: count)) }
             if out.count >= limit { break }
         }

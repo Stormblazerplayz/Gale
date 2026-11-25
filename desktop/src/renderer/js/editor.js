@@ -125,6 +125,11 @@
   function onSessionChange(info) {
     const p = project();
     if (!p) return;
+    // A pixel story belongs in the pixel editor.
+    if (info.first && p.pixel && Gale.openProject) {
+      Gale.openProject(E.session.id, E.onClose, 'pixel');
+      return;
+    }
     if (info.first) {
       $('stage-msg').hidden = true;
       E.layerId = p.layers[p.layers.length - 1].id;

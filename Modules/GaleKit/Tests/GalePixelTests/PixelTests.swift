@@ -30,6 +30,9 @@ final class PixelFormatTests: XCTestCase {
         // Bad pairs are skipped, indexes are clamped, and the limit holds.
         XCTAssertEqual(PixelRuns.decode([2, 300, -1, 4, .nan, 1, 1, 7]), [255, 255, 7])
         XCTAssertEqual(PixelRuns.decode([1_000_000, 3], limit: 5).count, 5)
+        // Huge numbers from a bad file are clamped, not crashed on.
+        XCTAssertEqual(PixelRuns.decode([1e300, 2, 4, 1e300], limit: 6), [2, 2, 2, 2, 2, 2])
+        XCTAssertEqual(PixelRuns.decode([2, 1e300, 1, -1e300]), [255, 255, 0])
     }
 
     func testProjectFileRoundTrip() throws {

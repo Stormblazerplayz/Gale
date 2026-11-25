@@ -365,7 +365,10 @@ struct PixelEditorView: View {
             get: { (document.project.pixel?.palette[safe: i] ?? .black).color },
             set: { c in
                 editStory(undoable: false) { st in
-                    if i > 0 && i < st.palette.count { st.palette[i] = RGBA(c) }
+                    if i > 0 && i < st.palette.count {
+                        st.palette[i] = RGBA(c)
+                        st.paletteName = "" // no longer the built-in palette
+                    }
                 }
             })
     }
@@ -377,6 +380,7 @@ struct PixelEditorView: View {
         editStory { st in
             guard st.palette.count < PixelStory.maxColors else { return }
             st.palette.append(base)
+            st.paletteName = ""
             newIndex = st.palette.count - 1
         }
         color = UInt8(newIndex)

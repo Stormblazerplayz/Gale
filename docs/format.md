@@ -61,6 +61,42 @@ cover.png      small picture of the first frame (optional)
 
 Timing: tick = 1/fps seconds. Frame i starts at the sum of the holds before it. The animation loops when it ends.
 
+### Pixel stories
+
+A project with a `pixel` field is a **pixel story** (Pixel Storytime): small pixel-art scenes played one after another
+with captions and speech bubbles. Apps open it in their pixel editor; `layers`/`frames` stay as they are (usually one
+empty layer and frame) and `canvas` is the grid scaled up to about 1024 px with `paper` as background, for apps that only
+know drawings.
+
+```json
+"pixel": {
+  "width": 32, "height": 32,
+  "palette": ["#00000000", "#000000FF", "#1D2B53FF"],
+  "paletteName": "PICO-8",
+  "paper": "#FFCCAAFF",
+  "scenes": [ {
+    "id": "s1", "key": "a0", "name": "Scene 1", "fps": 8, "loops": 2, "background": 0,
+    "caption": "Once upon a time...", "transition": "fade",
+    "bubbles": [ { "id": "b1", "text": "Hi!", "x": 0.5, "y": 0.2, "tailX": 0.45, "tailY": 0.5, "style": "speech" } ],
+    "frames": [ { "id": "x1", "key": "a0", "hold": 1, "runs": [1023, 0, 1, 3] } ]
+  } ]
+}
+```
+
+| Thing | Fields |
+|---|---|
+| story | `width, height` (8-256 cells), `palette` (up to 64 `#RRGGBBAA`; index 0 is always see-through), `paletteName` (`""` once colors are edited), `paper` (color behind scenes with background 0). |
+| scene | `id, key, name, fps` (1-30), `loops` (1-20, times the animation plays), `background` (palette index, 0 = paper), `caption`, `transition` (`cut, fade, wipe, iris`; unknown = cut; how the scene comes in), `bubbles`, `frames`. Sorted by key. |
+| bubble | `id, text, x, y` (center, 0-1 of the art), `tailX, tailY` (where the tail points, 0-1), `style` (`speech, thought, shout, sign`; unknown = speech). |
+| pixel frame | `id, key, hold` (ticks), `runs`: the cells row by row from the top left as pairs `count, palette index`. Index 0 = see-through. Missing cells are 0, extra ones dropped, indexes past the palette become 0. |
+
+Readers fix what they can instead of failing: sizes are clamped, an empty story gets one scene, an empty scene one frame.
+
+Playing a story: scenes play in order. A scene lasts `loops` times its animation, but at least long enough to type its
+caption and bubble text at 24 letters a second (starting 0.2 s after its transition, which takes 0.5 s; `cut` takes 0)
+and then 1.6 s to read; at least 0.5 s and at most 60 s. Desktop and iPad draw the same picture, byte for byte, for the
+same story and time (checked by `desktop/test/fixtures/pixel-swift.json`).
+
 ## 3. Library files (not inside projects)
 
 Stored in the app's `Library/loops/<id>.json` and `Library/stash/<id>.json`.
@@ -88,7 +124,7 @@ For sync, a project is a flat set of objects. Every object has a type and fields
 
 | `$type` | object id | fields |
 |---|---|---|
-| `project` | project id | `name, width, height, background, fps, motionBlur, overlay, created` |
+| `project` | project id | `name, width, height, background, fps, motionBlur, overlay, created`, and `pixel` for a pixel story (`{width, height, palette, paletteName, paper}`, no scenes) |
 | `layer` | layer id | `key, name, visible, locked, opacity` |
 | `frame` | frame id | `key, hold` |
 | `stroke` | stroke id | `frame, layer, key, brush, pts` |
@@ -97,10 +133,13 @@ For sync, a project is a flat set of objects. Every object has a type and fields
 | `track` | track id | `key, kind, name, muted, volume` |
 | `clip` | clip id | `track, media, start, in, duration, speed, volume, fadeIn, fadeOut` |
 | `media` | media id | `file, kind, name, duration, sha256` |
+| `pxscene` | scene id | `key, name, fps, loops, background, caption, bubbles, transition` |
+| `pxframe` | pixel frame id | `scene, key, hold, runs` |
 
 Field values are the same JSON as in project.json (`brush` is the brush object, `pts` the flat list, `motionBlur` the object).
 `$type` is also a field. Deleting sets the field `$del` to `true`. A stroke or fill whose frame or layer is gone (or deleted)
-is ignored when building the project.
+is ignored when building the project. So is a `pxframe` whose scene is gone, and `pxscene`/`pxframe` objects when the
+project has no `pixel` field. Drawing one frame changes only that frame's `runs`.
 
 An op changes one field of one object:
 

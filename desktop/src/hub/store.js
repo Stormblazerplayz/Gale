@@ -76,7 +76,9 @@ class ProjectLog extends Replica {
   }
 
   summary() {
-    return { id: this.id, name: this.name, modified: this.modified() || Model.formatDate(Date.now()), seq: this.seq };
+    const px = this.get(this.id, 'pixel');
+    const pixel = px !== null && typeof px === 'object' && !Array.isArray(px);
+    return { id: this.id, name: this.name, modified: this.modified() || Model.formatDate(Date.now()), seq: this.seq, pixel };
   }
 
   toJSON() {

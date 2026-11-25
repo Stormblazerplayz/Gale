@@ -2,7 +2,7 @@
 // The home screen: your drawings (stored in the hub), and making, renaming, copying and deleting them.
 (function () {
   const Gale = (window.Gale = window.Gale || {});
-  const { Model, Objects, Replica: Rp, Hlc } = window.GaleShared;
+  const { Model, Objects, Replica: Rp, Hlc, Pixel } = window.GaleShared;
   const { el, $, toast, modal, askText, confirmBox, timeAgo } = Gale.ui;
   const R = Gale.render;
 
@@ -57,6 +57,28 @@
     const p = Model.newProject(result);
     pushProject(p);
     H.onOpen(p.id);
+  }
+
+  async function newPixelStory() {
+    const p = await Gale.pixelEditor.askNewStory();
+    if (!p) return;
+    pushProject(p);
+    H.onOpen(p.id, undefined, 'pixel');
+  }
+
+  /** A pixel story's cover: its first frame, every pixel a sharp square. */
+  function pixelCover(p) {
+    const st = p.pixel;
+    const sc = st.scenes[0];
+    const img = Pixel.renderFrame(sc.frames[0].cells, st.width, st.height, Pixel.colors(st), Pixel.background(st, sc));
+    const k = Math.max(1, Math.floor(Math.min(460 / st.width, 288 / st.height)));
+    const big = Pixel.scaled(img, k);
+    const c = document.createElement('canvas');
+    c.width = big.width;
+    c.height = big.height;
+    c.className = 'px-cover';
+    c.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(big.data.buffer, big.data.byteOffset, big.data.length), big.width, big.height), 0, 0);
+    return c;
   }
 
   async function importProject() {
@@ -115,11 +137,16 @@
       if (!holder.isConnected) continue;
       try {
         const p = Model.readProject(await H.client.fetchProject(summary.id));
-        const scale = Math.min(460 / p.canvas.width, 288 / p.canvas.height);
-        const c = document.createElement('canvas');
-        c.width = Math.max(1, Math.round(p.canvas.width * scale));
-        c.height = Math.max(1, Math.round(p.canvas.height * scale));
-        R.composeFrame(c, p, 0, { scale });
+        let c;
+        if (p.pixel) {
+          c = pixelCover(p);
+        } else {
+          const scale = Math.min(460 / p.canvas.width, 288 / p.canvas.height);
+          c = document.createElement('canvas');
+          c.width = Math.max(1, Math.round(p.canvas.width * scale));
+          c.height = Math.max(1, Math.round(p.canvas.height * scale));
+          R.composeFrame(c, p, 0, { scale });
+        }
         H.covers.set(summary.id, { key, canvas: c });
         if (holder.isConnected) {
           holder.textContent = '';
@@ -140,9 +167,10 @@
     $('home-empty').hidden = list.length > 0;
     grid.hidden = list.length === 0;
     for (const s of list) {
-      const thumb = el('div', { class: 'thumb' });
-      const card = el('div', { class: 'card', title: 'Open', onclick: () => H.onOpen(s.id) },
+      const thumb = el('div', { class: `thumb${s.pixel ? ' px-thumb' : ''}` });
+      const card = el('div', { class: `card${s.pixel ? ' px-card-home' : ''}`, title: 'Open', onclick: () => H.onOpen(s.id) },
         thumb,
+        s.pixel ? el('span', { class: 'px-tag', text: 'PIXEL STORY' }) : null,
         el('div', { class: 'info' }, el('div', { class: 'name', text: s.name }), el('div', { class: 'when', text: `Changed ${timeAgo(s.modified)}` })),
         el('div', { class: 'actions', onclick: (e) => e.stopPropagation() },
           el('button', { class: 'btn small', text: 'Rename', onclick: () => rename(s) }),
@@ -166,6 +194,7 @@
     client.on('status', setStatus);
     setStatus(false);
     $('home-new').onclick = newDrawing;
+    $('home-new-pixel').onclick = newPixelStory;
     $('home-import').onclick = importProject;
     $('home-files').onclick = () => window.galeAPI.openDocs();
     $('home-pair').onclick = onPair;
