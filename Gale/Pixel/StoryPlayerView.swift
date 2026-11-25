@@ -44,6 +44,8 @@ struct StoryPlayerView: View {
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .environment(\.colorScheme, .dark)
+        // Keep the buttons inside as their own elements, so "closePlayer" isn't renamed to "storyPlayer".
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("storyPlayer")
         .onAppear {
             start = Date()
